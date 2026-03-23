@@ -294,3 +294,47 @@ func TestInPlaceFromInstanceData_SkipsWorktreeConstruction(t *testing.T) {
 		t.Error("expected empty worktree BranchName for in-place session")
 	}
 }
+
+func TestInstanceData_BaseBranch_Serialization(t *testing.T) {
+	original := InstanceData{
+		Title:      "test-session",
+		Path:       "/tmp/repo",
+		Branch:     "feature",
+		BaseBranch: "origin/main",
+		Program:    "claude",
+	}
+
+	jsonBytes, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var restored InstanceData
+	if err := json.Unmarshal(jsonBytes, &restored); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if restored.BaseBranch != "origin/main" {
+		t.Errorf("BaseBranch = %q, want %q", restored.BaseBranch, "origin/main")
+	}
+}
+
+func TestInstanceData_BaseBranch_OmitEmpty(t *testing.T) {
+	data := InstanceData{
+		Title:      "test-session",
+		Path:       "/tmp/repo",
+		Branch:     "feature",
+		BaseBranch: "",
+		Program:    "claude",
+	}
+
+	jsonBytes, err := json.Marshal(data)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	jsonStr := string(jsonBytes)
+	if strings.Contains(jsonStr, "base_branch") {
+		t.Errorf("expected base_branch to be omitted from JSON when empty, got: %s", jsonStr)
+	}
+}
