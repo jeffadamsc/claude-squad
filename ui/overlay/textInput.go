@@ -54,7 +54,7 @@ func NewTextInputOverlay(title string, initialValue string) *TextInputOverlay {
 	return &TextInputOverlay{
 		textarea: ti,
 		Title:    title,
-		numStops: 3, // toggle + textarea + enter button
+		numStops: 2, // textarea + enter button (no toggle for non-creation overlays)
 	}
 }
 

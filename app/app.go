@@ -367,6 +367,7 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		if msg.String() == "ctrl+c" {
 			m.state = stateDefault
 			m.promptAfterName = false
+			m.inPlaceSession = false
 			m.list.Kill()
 			return m, tea.Sequence(
 				tea.WindowSize(),
@@ -436,6 +437,7 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		case tea.KeyEsc:
 			m.list.Kill()
 			m.state = stateDefault
+			m.inPlaceSession = false
 			m.instanceChanged()
 
 			return m, tea.Sequence(
