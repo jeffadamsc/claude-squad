@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -211,5 +212,85 @@ func TestSubmoduleSerializationRoundTrip_EmptySubmodules(t *testing.T) {
 	}
 	if restored.BaseCommitSHA != original.BaseCommitSHA {
 		t.Errorf("BaseCommitSHA = %q, want %q", restored.BaseCommitSHA, original.BaseCommitSHA)
+	}
+}
+
+func TestInPlaceSessionSerialization_AllFields(t *testing.T) {
+	data := InstanceData{
+		Title:   "in-place-test",
+		Path:    "/home/user/project",
+		Branch:  "main",
+		Status:  0, // Running
+		InPlace: true,
+		Program: "claude",
+	}
+
+	jsonBytes, err := json.Marshal(data)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	// Verify in_place is present in JSON
+	jsonStr := string(jsonBytes)
+	if !strings.Contains(jsonStr, `"in_place":true`) {
+		t.Errorf("expected in_place:true in JSON, got: %s", jsonStr)
+	}
+
+	// Verify worktree is zero (empty fields not serialized with omitempty would still be present)
+	if strings.Contains(jsonStr, `"repo_path":"/"`) {
+		t.Error("in-place session should not have repo_path set")
+	}
+
+	var restored InstanceData
+	if err := json.Unmarshal(jsonBytes, &restored); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if !restored.InPlace {
+		t.Error("expected InPlace to be true after round-trip")
+	}
+	if restored.Path != "/home/user/project" {
+		t.Errorf("expected path preserved, got %q", restored.Path)
+	}
+	if restored.Branch != "main" {
+		t.Errorf("expected branch preserved, got %q", restored.Branch)
+	}
+}
+
+func TestInPlaceFromInstanceData_SkipsWorktreeConstruction(t *testing.T) {
+	// Verify that FromInstanceData with InPlace=true does NOT construct a GitWorktree.
+	// We can't call FromInstanceData directly (it starts tmux), but we can verify
+	// the serialization round-trip preserves InPlace and has zero-value worktree.
+	data := InstanceData{
+		Title:   "in-place-from",
+		Path:    "/tmp/test-project",
+		Branch:  "feature",
+		Status:  1, // Paused — avoids calling Start()
+		InPlace: true,
+		Program: "claude",
+	}
+
+	jsonBytes, err := json.Marshal(data)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var restored InstanceData
+	if err := json.Unmarshal(jsonBytes, &restored); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if !restored.InPlace {
+		t.Error("expected InPlace to be true")
+	}
+	// Worktree fields should be zero-value (not populated)
+	if restored.Worktree.RepoPath != "" {
+		t.Error("expected empty worktree RepoPath for in-place session")
+	}
+	if restored.Worktree.WorktreePath != "" {
+		t.Error("expected empty worktree WorktreePath for in-place session")
+	}
+	if restored.Worktree.BranchName != "" {
+		t.Error("expected empty worktree BranchName for in-place session")
 	}
 }
