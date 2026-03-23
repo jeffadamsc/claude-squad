@@ -62,3 +62,115 @@ func TestBackwardCompatibility_NoSubmodules(t *testing.T) {
 		t.Error("old format should have no submodules")
 	}
 }
+
+func TestSubmoduleSerializationRoundTrip_MultipleSubmodules(t *testing.T) {
+	original := GitWorktreeData{
+		RepoPath:         "/repo",
+		WorktreePath:     "/wt",
+		SessionName:      "multi",
+		BranchName:       "multi-branch",
+		BaseCommitSHA:    "aaa111",
+		IsExistingBranch: false,
+		IsSubmoduleAware: true,
+		Submodules: []SubmoduleWorktreeData{
+			{
+				SubmodulePath:    "sub-a",
+				GitDir:           "/repo/.git/modules/sub-a",
+				WorktreePath:     "/wt/sub-a",
+				BranchName:       "multi-branch",
+				BaseCommitSHA:    "bbb222",
+				IsExistingBranch: false,
+			},
+			{
+				SubmodulePath:    "sub-b",
+				GitDir:           "/repo/.git/modules/sub-b",
+				WorktreePath:     "/wt/sub-b",
+				BranchName:       "multi-branch",
+				BaseCommitSHA:    "ccc333",
+				IsExistingBranch: true,
+			},
+		},
+	}
+
+	jsonBytes, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var restored GitWorktreeData
+	if err := json.Unmarshal(jsonBytes, &restored); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if !restored.IsSubmoduleAware {
+		t.Error("expected IsSubmoduleAware to be true")
+	}
+	if len(restored.Submodules) != 2 {
+		t.Fatalf("expected 2 submodules, got %d", len(restored.Submodules))
+	}
+
+	// Build a map for order-independent comparison
+	byPath := make(map[string]SubmoduleWorktreeData)
+	for _, s := range restored.Submodules {
+		byPath[s.SubmodulePath] = s
+	}
+
+	for _, orig := range original.Submodules {
+		got, ok := byPath[orig.SubmodulePath]
+		if !ok {
+			t.Errorf("submodule %q missing after round-trip", orig.SubmodulePath)
+			continue
+		}
+		if got.GitDir != orig.GitDir {
+			t.Errorf("%s: GitDir = %q, want %q", orig.SubmodulePath, got.GitDir, orig.GitDir)
+		}
+		if got.WorktreePath != orig.WorktreePath {
+			t.Errorf("%s: WorktreePath = %q, want %q", orig.SubmodulePath, got.WorktreePath, orig.WorktreePath)
+		}
+		if got.BranchName != orig.BranchName {
+			t.Errorf("%s: BranchName = %q, want %q", orig.SubmodulePath, got.BranchName, orig.BranchName)
+		}
+		if got.BaseCommitSHA != orig.BaseCommitSHA {
+			t.Errorf("%s: BaseCommitSHA = %q, want %q", orig.SubmodulePath, got.BaseCommitSHA, orig.BaseCommitSHA)
+		}
+		if got.IsExistingBranch != orig.IsExistingBranch {
+			t.Errorf("%s: IsExistingBranch = %v, want %v", orig.SubmodulePath, got.IsExistingBranch, orig.IsExistingBranch)
+		}
+	}
+}
+
+func TestSubmoduleSerializationRoundTrip_EmptySubmodules(t *testing.T) {
+	original := GitWorktreeData{
+		RepoPath:         "/repo",
+		WorktreePath:     "/wt",
+		SessionName:      "empty-subs",
+		BranchName:       "empty-branch",
+		BaseCommitSHA:    "abc123",
+		IsExistingBranch: false,
+		IsSubmoduleAware: true,
+		Submodules:       []SubmoduleWorktreeData{},
+	}
+
+	jsonBytes, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var restored GitWorktreeData
+	if err := json.Unmarshal(jsonBytes, &restored); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if !restored.IsSubmoduleAware {
+		t.Error("expected IsSubmoduleAware to be preserved as true")
+	}
+	if len(restored.Submodules) != 0 {
+		t.Errorf("expected 0 submodules, got %d", len(restored.Submodules))
+	}
+	if restored.RepoPath != original.RepoPath {
+		t.Errorf("RepoPath = %q, want %q", restored.RepoPath, original.RepoPath)
+	}
+	if restored.BaseCommitSHA != original.BaseCommitSHA {
+		t.Errorf("BaseCommitSHA = %q, want %q", restored.BaseCommitSHA, original.BaseCommitSHA)
+	}
+}

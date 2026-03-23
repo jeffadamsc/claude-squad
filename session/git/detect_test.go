@@ -99,3 +99,49 @@ func TestHasSubmodules(t *testing.T) {
 		t.Error("expected HasSubmodules to return false for repo without submodules")
 	}
 }
+
+func TestListSubmodules_NotGitRepo(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	_, err := ListSubmodules(tmpDir)
+	if err == nil {
+		t.Error("expected error when calling ListSubmodules on a non-git directory")
+	}
+}
+
+// setupTestRepoWithMultipleSubmodules creates a parent repo with two submodules: sub-a and sub-b.
+func setupTestRepoWithMultipleSubmodules(t *testing.T) string {
+	t.Helper()
+	tmpDir := t.TempDir()
+
+	// Create two bare remote repos and push an initial commit to each
+	for _, name := range []string{"sub-a", "sub-b"} {
+		remote := filepath.Join(tmpDir, name+"-remote.git")
+		runCmd(t, "", "git", "init", "--bare", remote)
+		work := filepath.Join(tmpDir, name+"-work")
+		runCmd(t, "", "git", "init", work)
+		runCmd(t, work, "git", "config", "user.email", "test@test.com")
+		runCmd(t, work, "git", "config", "user.name", "Test")
+		writeFile(t, filepath.Join(work, "file.txt"), "hello from "+name)
+		runCmd(t, work, "git", "add", ".")
+		runCmd(t, work, "git", "commit", "-m", "init "+name)
+		runCmd(t, work, "git", "remote", "add", "origin", remote)
+		runCmd(t, work, "git", "push", "origin", "HEAD:main")
+	}
+
+	parentDir := filepath.Join(tmpDir, "parent")
+	runCmd(t, "", "git", "init", parentDir)
+	runCmd(t, parentDir, "git", "config", "user.email", "test@test.com")
+	runCmd(t, parentDir, "git", "config", "user.name", "Test")
+	writeFile(t, filepath.Join(parentDir, "root.txt"), "root")
+	runCmd(t, parentDir, "git", "add", ".")
+	runCmd(t, parentDir, "git", "commit", "-m", "initial")
+
+	for _, name := range []string{"sub-a", "sub-b"} {
+		remote := filepath.Join(tmpDir, name+"-remote.git")
+		runCmd(t, parentDir, "git", "-c", "protocol.file.allow=always", "submodule", "add", remote, name)
+	}
+	runCmd(t, parentDir, "git", "commit", "-m", "add submodules")
+
+	return parentDir
+}
