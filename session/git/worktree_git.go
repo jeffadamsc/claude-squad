@@ -52,6 +52,20 @@ func SearchBranches(repoPath, filter string) ([]string, error) {
 	return branches, nil
 }
 
+// DetectDefaultRemoteBranches checks which of origin/main and origin/master exist
+// in the given repo. Returns a slice in display order (main first, then master).
+// Uses git rev-parse --verify for clean existence checks with no output parsing.
+func DetectDefaultRemoteBranches(repoPath string) []string {
+	var branches []string
+	for _, ref := range []string{"origin/main", "origin/master"} {
+		cmd := exec.Command("git", "-C", repoPath, "rev-parse", "--verify", ref)
+		if err := cmd.Run(); err == nil {
+			branches = append(branches, ref)
+		}
+	}
+	return branches
+}
+
 // runGitCommand executes a git command and returns any error
 func (g *GitWorktree) runGitCommand(path string, args ...string) (string, error) {
 	baseArgs := []string{"-C", path}
