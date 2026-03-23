@@ -32,6 +32,8 @@ type GitWorktreeData struct {
 	BranchName       string `json:"branch_name"`
 	BaseCommitSHA    string `json:"base_commit_sha"`
 	IsExistingBranch bool   `json:"is_existing_branch"`
+	Submodules       []SubmoduleWorktreeData `json:"submodules,omitempty"`
+	IsSubmoduleAware bool                    `json:"is_submodule_aware,omitempty"`
 }
 
 // DiffStatsData represents the serializable data of a DiffStats
@@ -39,6 +41,16 @@ type DiffStatsData struct {
 	Added   int    `json:"added"`
 	Removed int    `json:"removed"`
 	Content string `json:"content"`
+}
+
+// SubmoduleWorktreeData represents the serializable data of a SubmoduleWorktree
+type SubmoduleWorktreeData struct {
+	SubmodulePath    string `json:"submodule_path"`
+	GitDir           string `json:"git_dir"`
+	WorktreePath     string `json:"worktree_path"`
+	BranchName       string `json:"branch_name"`
+	BaseCommitSHA    string `json:"base_commit_sha"`
+	IsExistingBranch bool   `json:"is_existing_branch"`
 }
 
 // Storage handles saving and loading instances using the state interface

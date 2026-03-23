@@ -92,6 +92,19 @@ func (i *Instance) ToInstanceData() InstanceData {
 			BaseCommitSHA:    i.gitWorktree.GetBaseCommitSHA(),
 			IsExistingBranch: i.gitWorktree.IsExistingBranch(),
 		}
+		if i.gitWorktree.IsSubmoduleAware() {
+			data.Worktree.IsSubmoduleAware = true
+			for _, sw := range i.gitWorktree.GetSubmodules() {
+				data.Worktree.Submodules = append(data.Worktree.Submodules, SubmoduleWorktreeData{
+					SubmodulePath:    sw.GetSubmodulePath(),
+					GitDir:           sw.GetGitDir(),
+					WorktreePath:     sw.GetWorktreePath(),
+					BranchName:       sw.GetBranchName(),
+					BaseCommitSHA:    sw.GetBaseCommitSHA(),
+					IsExistingBranch: sw.IsExistingBranch(),
+				})
+			}
+		}
 	}
 
 	// Only include diff stats if they exist
@@ -131,6 +144,17 @@ func FromInstanceData(data InstanceData) (*Instance, error) {
 			Removed: data.DiffStats.Removed,
 			Content: data.DiffStats.Content,
 		},
+	}
+
+	if data.Worktree.IsSubmoduleAware && len(data.Worktree.Submodules) > 0 {
+		subs := make(map[string]*git.SubmoduleWorktree)
+		for _, sd := range data.Worktree.Submodules {
+			subs[sd.SubmodulePath] = git.NewSubmoduleWorktreeFromStorage(
+				sd.SubmodulePath, sd.GitDir, sd.WorktreePath,
+				sd.BranchName, sd.BaseCommitSHA, sd.IsExistingBranch,
+			)
+		}
+		instance.gitWorktree.RestoreSubmodules(subs)
 	}
 
 	if instance.Paused() {
