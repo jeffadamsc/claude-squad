@@ -60,6 +60,9 @@ type Instance struct {
 	// selectedBranch is the existing branch to start on (empty = new branch from HEAD)
 	selectedBranch string
 
+	// baseBranchRef is the ref to branch from ("origin/main", "origin/master", or "" for HEAD)
+	baseBranchRef string
+
 	// selectedSubmodules is the list of submodule paths to initialize in the worktree
 	selectedSubmodules []string
 
@@ -88,8 +91,9 @@ func (i *Instance) ToInstanceData() InstanceData {
 		CreatedAt: i.CreatedAt,
 		UpdatedAt: time.Now(),
 		Program:   i.Program,
-		AutoYes:   i.AutoYes,
-		InPlace:   i.inPlace,
+		AutoYes:    i.AutoYes,
+		InPlace:    i.inPlace,
+		BaseBranch: i.baseBranchRef,
 	}
 
 	// Only include worktree data if gitWorktree is initialized and not in-place
@@ -140,8 +144,9 @@ func FromInstanceData(data InstanceData) (*Instance, error) {
 		Width:     data.Width,
 		CreatedAt: data.CreatedAt,
 		UpdatedAt: data.UpdatedAt,
-		Program:   data.Program,
-		inPlace:   data.InPlace,
+		Program:       data.Program,
+		inPlace:       data.InPlace,
+		baseBranchRef: data.BaseBranch,
 	}
 
 	if !data.InPlace {
@@ -239,6 +244,11 @@ func (i *Instance) SetSelectedBranch(branch string) {
 	i.selectedBranch = branch
 }
 
+// SetBaseBranchRef sets the base branch ref for worktree creation.
+func (i *Instance) SetBaseBranchRef(ref string) {
+	i.baseBranchRef = ref
+}
+
 // SetSelectedSubmodules sets the submodule paths to initialize when starting the instance.
 func (i *Instance) SetSelectedSubmodules(subs []string) {
 	i.selectedSubmodules = subs
@@ -275,7 +285,14 @@ func (i *Instance) Start(firstTimeSetup bool) error {
 			i.gitWorktree = gitWorktree
 			i.Branch = i.selectedBranch
 		} else {
-			gitWorktree, branchName, err := git.NewGitWorktree(i.Path, i.Title)
+			var gitWorktree *git.GitWorktree
+			var branchName string
+			var err error
+			if i.baseBranchRef != "" && i.baseBranchRef != "HEAD" {
+				gitWorktree, branchName, err = git.NewGitWorktreeWithBase(i.Path, i.Title, i.baseBranchRef)
+			} else {
+				gitWorktree, branchName, err = git.NewGitWorktree(i.Path, i.Title)
+			}
 			if err != nil {
 				return fmt.Errorf("failed to create git worktree: %w", err)
 			}

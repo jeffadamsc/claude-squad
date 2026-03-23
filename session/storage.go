@@ -17,8 +17,9 @@ type InstanceData struct {
 	Width     int       `json:"width"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
-	AutoYes   bool      `json:"auto_yes"`
-	InPlace   bool      `json:"in_place,omitempty"`
+	AutoYes    bool   `json:"auto_yes"`
+	InPlace    bool   `json:"in_place,omitempty"`
+	BaseBranch string `json:"base_branch,omitempty"`
 
 	Program   string          `json:"program"`
 	Worktree  GitWorktreeData `json:"worktree"`
