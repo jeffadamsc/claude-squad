@@ -346,6 +346,16 @@ func (i *Instance) Kill() error {
 		return nil
 	}
 
+	if i.inPlace {
+		// In-place: just close tmux, no git cleanup
+		if i.tmuxSession != nil {
+			if err := i.tmuxSession.Close(); err != nil {
+				return fmt.Errorf("failed to close tmux session: %w", err)
+			}
+		}
+		return nil
+	}
+
 	var errs []error
 
 	// Always try to cleanup both resources, even if one fails
@@ -491,6 +501,15 @@ func (i *Instance) Pause() error {
 		return fmt.Errorf("instance is already paused")
 	}
 
+	if i.inPlace {
+		// In-place: just detach tmux, no git operations
+		if err := i.tmuxSession.DetachSafely(); err != nil {
+			return fmt.Errorf("failed to detach tmux session: %w", err)
+		}
+		i.SetStatus(Paused)
+		return nil
+	}
+
 	var errs []error
 
 	// Pause submodule worktrees first (commit + remove)
@@ -562,6 +581,15 @@ func (i *Instance) Resume() error {
 		return fmt.Errorf("can only resume paused instances")
 	}
 
+	if i.inPlace {
+		// In-place: just restart tmux in the original directory
+		if err := i.tmuxSession.Start(i.Path); err != nil {
+			return fmt.Errorf("failed to restart in-place session: %w", err)
+		}
+		i.SetStatus(Running)
+		return nil
+	}
+
 	// Check if branch is checked out
 	if checked, err := i.gitWorktree.IsBranchCheckedOut(); err != nil {
 		log.ErrorLog.Print(err)
@@ -626,6 +654,11 @@ func (i *Instance) UpdateDiffStats() error {
 
 	if i.Status == Paused {
 		// Keep the previous diff stats if the instance is paused
+		return nil
+	}
+
+	if i.inPlace {
+		i.diffStats = nil
 		return nil
 	}
 
