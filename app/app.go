@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -689,7 +690,6 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 
 		// Create the push action as a tea.Cmd
 		pushAction := func() tea.Msg {
-			// Default commit message with timestamp
 			commitMsg := fmt.Sprintf("[claudesquad] update from '%s' on %s", selected.Title, time.Now().Format(time.RFC822))
 			worktree, err := selected.GetGitWorktree()
 			if err != nil {
@@ -698,11 +698,27 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 			if err = worktree.PushChanges(commitMsg, true); err != nil {
 				return err
 			}
+			// Push submodule branches if submodule-aware
+			if worktree.IsSubmoduleAware() {
+				results := worktree.PushSubmoduleChanges()
+				var pushErrors []string
+				for path, pushErr := range results {
+					if pushErr != nil {
+						pushErrors = append(pushErrors, fmt.Sprintf("%s: %v", path, pushErr))
+					}
+				}
+				if len(pushErrors) > 0 {
+					return fmt.Errorf("submodule push errors:\n%s", strings.Join(pushErrors, "\n"))
+				}
+			}
 			return nil
 		}
 
 		// Show confirmation modal
 		message := fmt.Sprintf("[!] Push changes from session '%s'?", selected.Title)
+		if selected.GetActiveSubmodulePaths() != nil {
+			message += "\n(Remember to update submodule pointers in the parent repo when ready)"
+		}
 		return m, m.confirmAction(message, pushAction)
 	case keys.KeyCheckout:
 		selected := m.list.GetSelectedInstance()

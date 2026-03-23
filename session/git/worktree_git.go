@@ -123,6 +123,18 @@ func (g *GitWorktree) PushChanges(commitMessage string, open bool) error {
 	return nil
 }
 
+// PushSubmoduleChanges pushes branches in all submodules that have changes.
+// Returns a map of submodule path → error (nil for success).
+func (g *GitWorktree) PushSubmoduleChanges() map[string]error {
+	results := make(map[string]error)
+	for path, sw := range g.submodules {
+		if err := sw.PushChanges(); err != nil {
+			results[path] = err
+		}
+	}
+	return results
+}
+
 // CommitChanges commits changes locally without pushing to remote
 func (g *GitWorktree) CommitChanges(commitMessage string) error {
 	// Check if there are any changes to commit
