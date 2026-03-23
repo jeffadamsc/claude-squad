@@ -93,7 +93,8 @@ The menu at the bottom of the screen shows available commands:
 
 ##### Instance/Session Management
 - `n` - Create a new session
-- `N` - Create a new session with a prompt
+- `N` - Create a new session with a prompt (includes branch picker)
+- `i` - Create an in-place session (no git isolation, runs in current directory)
 - `D` - Kill (delete) the selected session
 - `↑/j`, `↓/k` - Navigate between sessions
 
@@ -139,6 +140,27 @@ Each profile has two fields:
 | `program` | Shell command used to launch the agent for that profile  |
 
 If no profiles are defined, Claude Squad uses `default_program` directly as the launch command (the default is `claude`).
+
+### Base Branch Selection
+
+When creating a new session with `N`, the branch picker shows options for which branch to start from:
+
+1. **New branch (from origin/main)** — if `origin/main` exists
+2. **New branch (from origin/master)** — if `origin/master` exists
+3. **New branch (from HEAD)** — branches from your current local commit
+4. **Existing branches** — sorted by most recent commit
+
+Selecting an origin-based option will fetch the latest from `origin` before creating the worktree, so your session always starts from the most up-to-date remote state. If the fetch fails (e.g., no network), it proceeds with the local copy of the remote-tracking branch.
+
+This is useful when you're on a feature branch but want a new session to start clean from the canonical default branch.
+
+#### Submodule base branch detection
+
+When a session includes submodules, each submodule independently detects its own default remote branch (`origin/main` or `origin/master`) rather than using the parent's choice. This handles repos where submodules may use different branch naming conventions.
+
+### In-Place Sessions
+
+Press `i` to create an **in-place session** that runs directly in your current working directory without creating a git branch or worktree. This is useful for quick tasks where git isolation isn't needed. In-place sessions show `[in-place]` in the session list.
 
 ### Submodule-Aware Sessions
 
