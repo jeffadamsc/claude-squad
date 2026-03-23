@@ -2,6 +2,7 @@ package overlay
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
+	"strings"
 	"testing"
 )
 
@@ -91,5 +92,76 @@ func TestInPlaceToggle_HidesBranchAndSubmodule(t *testing.T) {
 	o.SetInPlace(true)
 	if o.isBranchPicker() {
 		t.Error("branch picker should not be focusable when in-place is on")
+	}
+}
+
+func TestBranchPicker_IsNewBranch(t *testing.T) {
+	bp := NewBranchPicker()
+	if !bp.IsNewBranch() {
+		t.Error("expected IsNewBranch() true when on HEAD option")
+	}
+	if bp.BaseBranch() != "HEAD" {
+		t.Errorf("expected BaseBranch() = HEAD, got %s", bp.BaseBranch())
+	}
+}
+
+func TestBranchPicker_NewBranchOptionsWithOrigin(t *testing.T) {
+	bp := NewBranchPicker()
+	bp.SetNewBranchOptions([]string{"origin/main"})
+	items := bp.visibleItems()
+	if len(items) < 2 {
+		t.Fatalf("expected at least 2 items, got %d", len(items))
+	}
+	if items[0] != "New branch (from origin/main)" {
+		t.Errorf("expected first item to be origin/main option, got %s", items[0])
+	}
+	if items[1] != "New branch (from HEAD)" {
+		t.Errorf("expected second item to be HEAD option, got %s", items[1])
+	}
+	if bp.BaseBranch() != "origin/main" {
+		t.Errorf("expected BaseBranch() = origin/main, got %s", bp.BaseBranch())
+	}
+}
+
+func TestBranchPicker_NewBranchOptionsWithBoth(t *testing.T) {
+	bp := NewBranchPicker()
+	bp.SetNewBranchOptions([]string{"origin/main", "origin/master"})
+	items := bp.visibleItems()
+	if len(items) < 3 {
+		t.Fatalf("expected at least 3 items, got %d", len(items))
+	}
+	if items[0] != "New branch (from origin/main)" {
+		t.Errorf("expected first = origin/main option, got %s", items[0])
+	}
+	if items[1] != "New branch (from origin/master)" {
+		t.Errorf("expected second = origin/master option, got %s", items[1])
+	}
+	if items[2] != "New branch (from HEAD)" {
+		t.Errorf("expected third = HEAD option, got %s", items[2])
+	}
+}
+
+func TestBranchPicker_ExistingBranchNotNewBranch(t *testing.T) {
+	bp := NewBranchPicker()
+	bp.SetResults([]string{"feature/foo"}, 0)
+	bp.HandleKeyPress(tea.KeyMsg{Type: tea.KeyDown})
+	if bp.IsNewBranch() {
+		t.Error("expected IsNewBranch() false when on existing branch")
+	}
+	if bp.GetSelectedBranch() != "feature/foo" {
+		t.Errorf("expected GetSelectedBranch() = feature/foo, got %s", bp.GetSelectedBranch())
+	}
+}
+
+func TestBranchPicker_FilterHidesNewBranchOnExactMatch(t *testing.T) {
+	bp := NewBranchPicker()
+	bp.SetNewBranchOptions([]string{"origin/main"})
+	bp.filter = "feature/foo"
+	bp.SetResults([]string{"feature/foo"}, bp.filterVersion)
+	items := bp.visibleItems()
+	for _, item := range items {
+		if strings.HasPrefix(item, "New branch") {
+			t.Errorf("expected no New branch options when filter matches exactly, got %s", item)
+		}
 	}
 }

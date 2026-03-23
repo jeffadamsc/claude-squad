@@ -7,19 +7,20 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-const newBranchOption = "New branch (from HEAD)"
+const newBranchFromHEAD = "New branch (from HEAD)"
 
 // BranchPicker is an embeddable component for selecting a branch.
 // It does not hold the full branch list — results are provided asynchronously
 // via SetResults after each debounced search.
 type BranchPicker struct {
-	results       []string // current search results (from git)
-	filter        string   // current filter text
-	filterVersion uint64   // incremented on each filter change
-	cursor        int      // index into visibleItems()
-	focused       bool
-	width         int
-	showNewBranch bool // whether to show the "New branch" option
+	results          []string // current search results (from git)
+	filter           string   // current filter text
+	filterVersion    uint64   // incremented on each filter change
+	cursor           int      // index into visibleItems()
+	focused          bool
+	width            int
+	showNewBranch    bool     // whether to show the "New branch" option
+	newBranchOptions []string // remote refs to show as additional "New branch (from X)" options
 }
 
 // NewBranchPicker creates a new empty branch picker.
@@ -124,14 +125,52 @@ func (bp *BranchPicker) SetResults(branches []string, version uint64) {
 	}
 }
 
+// SetNewBranchOptions sets the list of remote refs to show as additional
+// "New branch (from X)" options ahead of the default HEAD option.
+func (bp *BranchPicker) SetNewBranchOptions(remoteBranches []string) {
+	bp.newBranchOptions = remoteBranches
+}
+
 // visibleItems returns the list of items to display.
 func (bp *BranchPicker) visibleItems() []string {
 	var items []string
 	if bp.showNewBranch {
-		items = append(items, newBranchOption)
+		for _, ref := range bp.newBranchOptions {
+			items = append(items, "New branch (from "+ref+")")
+		}
+		items = append(items, newBranchFromHEAD)
 	}
 	items = append(items, bp.results...)
 	return items
+}
+
+// IsNewBranch returns true if the currently selected item is a "New branch" option.
+func (bp *BranchPicker) IsNewBranch() bool {
+	items := bp.visibleItems()
+	if bp.cursor < 0 || bp.cursor >= len(items) {
+		return false
+	}
+	return strings.HasPrefix(items[bp.cursor], "New branch")
+}
+
+// BaseBranch returns the ref for the currently selected "New branch" option
+// (e.g. "origin/main", "origin/master", or "HEAD"). Returns "HEAD" if not on
+// a new-branch option or if the selected option is the HEAD variant.
+func (bp *BranchPicker) BaseBranch() string {
+	items := bp.visibleItems()
+	if bp.cursor < 0 || bp.cursor >= len(items) {
+		return "HEAD"
+	}
+	selected := items[bp.cursor]
+	if selected == newBranchFromHEAD {
+		return "HEAD"
+	}
+	// "New branch (from origin/main)" -> "origin/main"
+	const prefix = "New branch (from "
+	if strings.HasPrefix(selected, prefix) && strings.HasSuffix(selected, ")") {
+		return selected[len(prefix) : len(selected)-1]
+	}
+	return "HEAD"
 }
 
 // GetSelectedBranch returns the selected branch name, or empty string for "New branch".
@@ -141,7 +180,7 @@ func (bp *BranchPicker) GetSelectedBranch() string {
 		return ""
 	}
 	selected := items[bp.cursor]
-	if selected == newBranchOption {
+	if strings.HasPrefix(selected, "New branch") {
 		return ""
 	}
 	return selected
