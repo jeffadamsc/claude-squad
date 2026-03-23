@@ -185,7 +185,9 @@ func (r *InstanceRenderer) Render(i *session.Instance, idx int, selected bool, h
 	remainingWidth -= diffWidth
 
 	branch := i.Branch
-	if i.Started() && hasMultipleRepos {
+	if i.IsInPlace() {
+		branch = "[in-place]"
+	} else if i.Started() && hasMultipleRepos {
 		repoName, err := i.RepoName()
 		if err != nil {
 			log.ErrorLog.Printf("could not get repo name in instance renderer: %v", err)
