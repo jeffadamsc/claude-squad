@@ -487,6 +487,11 @@ func (i *Instance) IsInPlace() bool {
 	return i.inPlace
 }
 
+// SetInPlace marks this session as in-place (no git isolation).
+func (i *Instance) SetInPlace(inPlace bool) {
+	i.inPlace = inPlace
+}
+
 // TmuxAlive returns true if the tmux session is alive. This is a sanity check before attaching.
 func (i *Instance) TmuxAlive() bool {
 	return i.tmuxSession.DoesSessionExist()

@@ -29,6 +29,7 @@ const (
 	KeyShiftUp
 	KeyShiftDown
 
+	KeyInPlace
 )
 
 // GlobalKeyStringsMap is a global, immutable map string to keybinding.
@@ -50,6 +51,7 @@ var GlobalKeyStringsMap = map[string]KeyName{
 	"r":          KeyResume,
 	"p":          KeySubmit,
 	"?":          KeyHelp,
+	"i":          KeyInPlace,
 }
 
 // GlobalkeyBindings is a global, immutable map of KeyName tot keybinding.
@@ -109,6 +111,10 @@ var GlobalkeyBindings = map[KeyName]key.Binding{
 	KeyResume: key.NewBinding(
 		key.WithKeys("r"),
 		key.WithHelp("r", "resume"),
+	),
+	KeyInPlace: key.NewBinding(
+		key.WithKeys("i"),
+		key.WithHelp("i", "in-place"),
 	),
 
 	// -- Special keybindings --

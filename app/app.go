@@ -73,6 +73,9 @@ type home struct {
 	// promptAfterName tracks if we should enter prompt mode after naming
 	promptAfterName bool
 
+	// inPlaceSession is a transient flag set when 'i' is pressed, consumed when prompt submits
+	inPlaceSession bool
+
 	// keySent is used to manage underlining menu items
 	keySent bool
 
@@ -482,6 +485,10 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 					if len(selectedSubmodules) > 0 {
 						selected.SetSelectedSubmodules(selectedSubmodules)
 					}
+					if m.textInputOverlay.IsInPlace() {
+						selected.SetInPlace(true)
+					}
+					m.inPlaceSession = false // consume the transient flag
 					selected.Prompt = prompt
 
 					// Finalize into list and start
@@ -607,6 +614,30 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		m.promptAfterName = true
 
 		return m, fetchCmd
+	case keys.KeyInPlace:
+		if m.list.NumInstances() >= GlobalInstanceLimit {
+			return m, m.handleError(
+				fmt.Errorf("you can't create more than %d instances", GlobalInstanceLimit))
+		}
+
+		// No branch fetch needed for in-place sessions
+		instance, err := session.NewInstance(session.InstanceOptions{
+			Title:   "",
+			Path:    ".",
+			Program: m.program,
+		})
+		if err != nil {
+			return m, m.handleError(err)
+		}
+
+		m.newInstanceFinalizer = m.list.AddInstance(instance)
+		m.list.SetSelectedInstance(m.list.NumInstances() - 1)
+		m.state = stateNew
+		m.menu.SetState(ui.StateNewInstance)
+		m.promptAfterName = true
+		m.inPlaceSession = true
+
+		return m, nil
 	case keys.KeyNew:
 		if m.list.NumInstances() >= GlobalInstanceLimit {
 			return m, m.handleError(
@@ -651,19 +682,21 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 
 		// Create the kill action as a tea.Cmd
 		killAction := func() tea.Msg {
-			// Get worktree and check if branch is checked out
-			worktree, err := selected.GetGitWorktree()
-			if err != nil {
-				return err
-			}
+			if !selected.IsInPlace() {
+				// Get worktree and check if branch is checked out
+				worktree, err := selected.GetGitWorktree()
+				if err != nil {
+					return err
+				}
 
-			checkedOut, err := worktree.IsBranchCheckedOut()
-			if err != nil {
-				return err
-			}
+				checkedOut, err := worktree.IsBranchCheckedOut()
+				if err != nil {
+					return err
+				}
 
-			if checkedOut {
-				return fmt.Errorf("instance %s is currently checked out", selected.Title)
+				if checkedOut {
+					return fmt.Errorf("instance %s is currently checked out", selected.Title)
+				}
 			}
 
 			// Clean up terminal session for this instance
@@ -686,6 +719,10 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 		selected := m.list.GetSelectedInstance()
 		if selected == nil || selected.Status == session.Loading {
 			return m, nil
+		}
+
+		if selected.IsInPlace() {
+			return m, m.handleError(fmt.Errorf("push is not available for in-place sessions"))
 		}
 
 		// Create the push action as a tea.Cmd
@@ -902,14 +939,24 @@ func (m *home) newPromptOverlay() *overlay.TextInputOverlay {
 	for _, s := range submodules {
 		subPaths = append(subPaths, s.Path)
 	}
+	var o *overlay.TextInputOverlay
 	if len(subPaths) > 0 {
-		return overlay.NewTextInputOverlayWithSubmodules("Enter prompt", "", profiles, subPaths)
+		o = overlay.NewTextInputOverlayWithSubmodules("Enter prompt", "", profiles, subPaths)
+	} else {
+		o = overlay.NewTextInputOverlayWithBranchPicker("Enter prompt", "", profiles)
 	}
-	return overlay.NewTextInputOverlayWithBranchPicker("Enter prompt", "", profiles)
+
+	// Pre-select the in-place toggle if 'i' was pressed
+	if m.inPlaceSession {
+		o.SetInPlace(true)
+	}
+
+	return o
 }
 
 // cancelPromptOverlay cancels the prompt overlay, cleaning up unstarted instances.
 func (m *home) cancelPromptOverlay() tea.Cmd {
+	m.inPlaceSession = false // reset transient flag
 	selected := m.list.GetSelectedInstance()
 	if selected != nil && !selected.Started() {
 		m.list.Kill()
