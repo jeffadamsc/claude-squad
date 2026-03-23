@@ -290,6 +290,10 @@ func (m *home) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.state = statePrompt
 			m.menu.SetState(ui.StatePrompt)
 			m.textInputOverlay = m.newPromptOverlay()
+			// Detect remote default branches for new-branch options
+			currentDir, _ := os.Getwd()
+			remoteBranches := git.DetectDefaultRemoteBranches(currentDir)
+			m.textInputOverlay.SetNewBranchOptions(remoteBranches)
 		} else {
 			// If instance has a prompt (set from Shift+N flow), send it now
 			if msg.instance.Prompt != "" {
@@ -392,6 +396,10 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 				m.state = statePrompt
 				m.menu.SetState(ui.StatePrompt)
 				m.textInputOverlay = m.newPromptOverlay()
+				// Detect remote default branches for new-branch options
+				currentDir, _ := os.Getwd()
+				remoteBranches := git.DetectDefaultRemoteBranches(currentDir)
+				m.textInputOverlay.SetNewBranchOptions(remoteBranches)
 				// Trigger initial branch search (no debounce, version 0)
 				initialSearch := m.runBranchSearch("", m.textInputOverlay.BranchFilterVersion())
 				return m, tea.Batch(tea.WindowSize(), initialSearch)
@@ -489,6 +497,10 @@ func (m *home) handleKeyPress(msg tea.KeyMsg) (mod tea.Model, cmd tea.Cmd) {
 					}
 					if m.textInputOverlay.IsInPlace() {
 						selected.SetInPlace(true)
+					}
+					baseBranch := m.textInputOverlay.GetBaseBranch()
+					if baseBranch != "" && baseBranch != "HEAD" {
+						selected.SetBaseBranchRef(baseBranch)
 					}
 					m.inPlaceSession = false // consume the transient flag
 					selected.Prompt = prompt

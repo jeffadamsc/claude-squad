@@ -336,6 +336,25 @@ func (t *TextInputOverlay) GetSelectedBranch() string {
 	return t.branchPicker.GetSelectedBranch()
 }
 
+// GetBaseBranch returns the base branch ref from the branch picker.
+// Returns "HEAD" if no branch picker or an existing branch is selected.
+func (t *TextInputOverlay) GetBaseBranch() string {
+	if t.branchPicker == nil {
+		return "HEAD"
+	}
+	if !t.branchPicker.IsNewBranch() {
+		return "HEAD"
+	}
+	return t.branchPicker.BaseBranch()
+}
+
+// SetNewBranchOptions passes detected remote default branches to the branch picker.
+func (t *TextInputOverlay) SetNewBranchOptions(remoteBranches []string) {
+	if t.branchPicker != nil {
+		t.branchPicker.SetNewBranchOptions(remoteBranches)
+	}
+}
+
 // GetSelectedProgram returns the program string from the selected profile.
 // Returns empty string if no profile picker is present.
 func (t *TextInputOverlay) GetSelectedProgram() string {
