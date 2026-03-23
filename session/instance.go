@@ -8,6 +8,7 @@ import (
 
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -595,6 +596,34 @@ func (i *Instance) UpdateDiffStats() error {
 		return nil
 	}
 
+	if i.gitWorktree.IsSubmoduleAware() {
+		agg := i.gitWorktree.AggregatedDiff()
+		// Combine into a single DiffStats for backward compatibility
+		combined := &git.DiffStats{
+			Added:   agg.TotalAdded(),
+			Removed: agg.TotalRemoved(),
+		}
+		// Build combined content with section headers
+		var contentParts []string
+		if agg.Parent != nil && agg.Parent.Content != "" {
+			contentParts = append(contentParts, "--- parent ---\n"+agg.Parent.Content)
+		}
+		subPaths := make([]string, 0, len(agg.Submodules))
+		for p := range agg.Submodules {
+			subPaths = append(subPaths, p)
+		}
+		sort.Strings(subPaths)
+		for _, path := range subPaths {
+			if stats := agg.Submodules[path]; stats.Content != "" {
+				contentParts = append(contentParts, fmt.Sprintf("--- %s ---\n%s", path, stats.Content))
+			}
+		}
+		combined.Content = strings.Join(contentParts, "\n\n")
+		i.diffStats = combined
+		return nil
+	}
+
+	// Original single-repo behavior
 	stats := i.gitWorktree.Diff()
 	if stats.Error != nil {
 		if strings.Contains(stats.Error.Error(), "base commit SHA not set") {
@@ -612,6 +641,24 @@ func (i *Instance) UpdateDiffStats() error {
 // GetDiffStats returns the current git diff statistics
 func (i *Instance) GetDiffStats() *git.DiffStats {
 	return i.diffStats
+}
+
+// GetActiveSubmodulePaths returns the relative paths of active submodule worktrees,
+// or nil if the session is not submodule-aware or not started.
+func (i *Instance) GetActiveSubmodulePaths() []string {
+	if !i.started || i.gitWorktree == nil || !i.gitWorktree.IsSubmoduleAware() {
+		return nil
+	}
+	subs := i.gitWorktree.GetSubmodules()
+	if len(subs) == 0 {
+		return nil
+	}
+	paths := make([]string, 0, len(subs))
+	for p := range subs {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	return paths
 }
 
 // SendPrompt sends a prompt to the tmux session

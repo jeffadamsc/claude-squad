@@ -193,6 +193,16 @@ func (r *InstanceRenderer) Render(i *session.Instance, idx int, selected bool, h
 			branch += fmt.Sprintf(" (%s)", repoName)
 		}
 	}
+	// Show active submodules if any
+	subPaths := i.GetActiveSubmodulePaths()
+	if len(subPaths) > 0 {
+		var names []string
+		for _, path := range subPaths {
+			parts := strings.Split(path, "/")
+			names = append(names, parts[len(parts)-1])
+		}
+		branch += " [" + strings.Join(names, ",") + "]"
+	}
 	// Don't show branch if there's no space for it. Or show ellipsis if it's too long.
 	branchWidth := runewidth.StringWidth(branch)
 	if remainingWidth < 0 {
