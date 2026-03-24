@@ -273,6 +273,16 @@ func (sl *SessionList) SelectUp() {
 	}
 }
 
+// SelectByTitle selects the first entry matching the given title.
+func (sl *SessionList) SelectByTitle(title string) {
+	for i, entry := range sl.entries {
+		if !entry.isHeader && entry.instance != nil && entry.instance.Title == title {
+			sl.selectIndex(i)
+			return
+		}
+	}
+}
+
 // SelectDown moves selection down one non-header item.
 func (sl *SessionList) SelectDown() {
 	for i := sl.selectedIdx + 1; i < len(sl.entries); i++ {

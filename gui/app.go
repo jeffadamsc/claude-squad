@@ -278,6 +278,11 @@ func openSessionInFocusedPane(pm *panes.Manager, inst *session.Instance, sb *sid
 		return
 	}
 
+	// Don't open sessions that haven't started yet (no tmux session to connect to)
+	if !inst.Started() {
+		return
+	}
+
 	// Resume paused sessions in the background, then connect once ready
 	if inst.Paused() {
 		go func() {
@@ -309,13 +314,35 @@ func connectPaneToSession(pm *panes.Manager, pane *panes.Pane, inst *session.Ins
 }
 
 func showNewSessionDialog(w fyne.Window, cfg *config.Config, defaultProgram string, state *guiState, sb *sidebar.Sidebar, pm *panes.Manager, autoYes bool) {
-	defaultBranch := git.GetDefaultBranch(".")
-	branches, _ := git.SearchBranches(".", "")
+	// Use saved work dir or current directory
+	initialDir := cfg.DefaultWorkDir
+	gitDir := initialDir
+	if gitDir == "" {
+		gitDir = "."
+	}
 
-	dialogs.ShowNewSession(cfg.GetProfiles(), defaultBranch, branches, w,
-		func(filter string) []string {
-			results, _ := git.SearchBranches(".", filter)
+	defaultBranch := git.GetDefaultBranch(gitDir)
+	branches, _ := git.SearchBranches(gitDir, "")
+
+	dialogs.ShowNewSession(cfg.GetProfiles(), defaultBranch, branches, initialDir, w,
+		func(dir string, filter string) []string {
+			searchDir := dir
+			if searchDir == "" {
+				searchDir = "."
+			}
+			results, _ := git.SearchBranches(searchDir, filter)
 			return results
+		},
+		func(dir string) dialogs.DirChangeResult {
+			defBranch := git.GetDefaultBranch(dir)
+			if defBranch == "" {
+				defBranch = "main"
+			}
+			b, _ := git.SearchBranches(dir, "")
+			return dialogs.DirChangeResult{
+				DefaultBranch: defBranch,
+				Branches:      b,
+			}
 		},
 		func(opts dialogs.SessionOptions) {
 			if opts.Name == "" {
@@ -325,9 +352,15 @@ func showNewSessionDialog(w fyne.Window, cfg *config.Config, defaultProgram stri
 			if prog == "" {
 				prog = defaultProgram
 			}
+
+			path := opts.WorkDir
+			if path == "" {
+				path = "."
+			}
+
 			inst, err := session.NewInstance(session.InstanceOptions{
 				Title:   opts.Name,
-				Path:    ".",
+				Path:    path,
 				Program: prog,
 				InPlace: opts.InPlace,
 			})
@@ -343,6 +376,12 @@ func showNewSessionDialog(w fyne.Window, cfg *config.Config, defaultProgram stri
 			inst.SetStatus(session.Loading)
 			state.addInstance(inst)
 			sb.Update(state.getInstances())
+
+			// Save working directory preference
+			cfg.DefaultWorkDir = opts.WorkDir
+			if err := config.SaveConfig(cfg); err != nil {
+				log.ErrorLog.Printf("failed to save config: %v", err)
+			}
 
 			go func() {
 				if err := inst.Start(true); err != nil {
@@ -363,6 +402,9 @@ func showNewSessionDialog(w fyne.Window, cfg *config.Config, defaultProgram stri
 				}
 				fyne.Do(func() {
 					sb.Update(state.getInstances())
+					// Auto-open the new session in the focused pane
+					sb.SelectByTitle(inst.Title)
+					openSessionInFocusedPane(pm, inst, sb, state)
 				})
 				if err := state.storage.SaveInstances(state.getInstances()); err != nil {
 					log.ErrorLog.Printf("failed to save instances: %v", err)

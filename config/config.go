@@ -44,6 +44,9 @@ type Config struct {
 	BranchPrefix string `json:"branch_prefix"`
 	// Profiles is a list of named program profiles.
 	Profiles []Profile `json:"profiles,omitempty"`
+	// DefaultWorkDir is the last-used working directory for new sessions.
+	// Empty string means current directory.
+	DefaultWorkDir string `json:"default_work_dir,omitempty"`
 }
 
 // GetProgram returns the program to run. If Profiles is non-empty and

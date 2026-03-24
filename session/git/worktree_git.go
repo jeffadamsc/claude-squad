@@ -30,9 +30,12 @@ func GetDefaultBranch(repoPath string) string {
 		}
 	}
 
-	// Fall back to current branch
-	if branch, err := GetCurrentBranch(repoPath); err == nil && branch != "" {
-		return branch
+	// Check if "main" or "master" exists as a remote branch
+	for _, candidate := range []string{"main", "master"} {
+		checkCmd := exec.Command("git", "-C", repoPath, "show-ref", "--verify", fmt.Sprintf("refs/remotes/origin/%s", candidate))
+		if err := checkCmd.Run(); err == nil {
+			return candidate
+		}
 	}
 
 	// Final fallback
@@ -64,11 +67,10 @@ func SearchBranches(repoPath, filter string) ([]string, error) {
 	var branches []string
 	lower := strings.ToLower(filter)
 	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.Contains(line, "HEAD") {
+		name := strings.TrimSpace(line)
+		if name == "" || strings.Contains(name, "HEAD") {
 			continue
 		}
-		name := strings.TrimPrefix(line, "origin/")
 		if seen[name] {
 			continue
 		}

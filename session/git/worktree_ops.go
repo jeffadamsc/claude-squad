@@ -59,7 +59,7 @@ func (g *GitWorktree) setupFromExistingBranch() error {
 		if _, err := g.runGitCommand(g.repoPath, "worktree", "add", "-b", g.branchName, g.worktreePath, fmt.Sprintf("origin/%s", g.branchName)); err != nil {
 			return fmt.Errorf("failed to create worktree from remote branch %s: %w", g.branchName, err)
 		}
-		return nil
+		return g.initAndFetchSubmodules()
 	}
 
 	// Create a new worktree from the existing local branch
@@ -67,7 +67,7 @@ func (g *GitWorktree) setupFromExistingBranch() error {
 		return fmt.Errorf("failed to create worktree from branch %s: %w", g.branchName, err)
 	}
 
-	return nil
+	return g.initAndFetchSubmodules()
 }
 
 // setupNewWorktree creates a new worktree from HEAD
@@ -98,7 +98,7 @@ func (g *GitWorktree) setupNewWorktree() error {
 		return fmt.Errorf("failed to create worktree from commit %s: %w", headCommit, err)
 	}
 
-	return nil
+	return g.initAndFetchSubmodules()
 }
 
 // setupFromRef creates a new worktree with a new branch based on a specific ref.
@@ -119,6 +119,28 @@ func (g *GitWorktree) setupFromRef() error {
 	// Create worktree with new branch based on the ref
 	if _, err := g.runGitCommand(g.repoPath, "worktree", "add", "-b", g.branchName, g.worktreePath, g.baseRef); err != nil {
 		return fmt.Errorf("failed to create worktree from ref %s: %w", g.baseRef, err)
+	}
+
+	return g.initAndFetchSubmodules()
+}
+
+// initAndFetchSubmodules initializes, fetches, and updates submodules in the worktree.
+// Skips silently if the repo has no submodules.
+func (g *GitWorktree) initAndFetchSubmodules() error {
+	// Check if .gitmodules exists in the worktree
+	if _, err := os.Stat(filepath.Join(g.worktreePath, ".gitmodules")); os.IsNotExist(err) {
+		return nil
+	}
+
+	// Initialize submodules
+	if _, err := g.runGitCommand(g.worktreePath, "submodule", "update", "--init", "--recursive"); err != nil {
+		return fmt.Errorf("failed to init submodules: %w", err)
+	}
+
+	// Fetch latest from all submodule remotes
+	if _, err := g.runGitCommand(g.worktreePath, "submodule", "foreach", "--recursive", "git", "fetch", "origin"); err != nil {
+		log.WarningLog.Printf("failed to fetch submodule remotes: %v", err)
+		// Non-fatal: submodules are initialized, just not fetched
 	}
 
 	return nil

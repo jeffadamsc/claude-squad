@@ -65,6 +65,9 @@ func (s *Sidebar) SelectedInstance() *session.Instance {
 	return s.sessionList.SelectedInstance()
 }
 
+// SelectByTitle selects a session by its title.
+func (s *Sidebar) SelectByTitle(title string) { s.sessionList.SelectByTitle(title) }
+
 // SelectUp moves selection up.
 func (s *Sidebar) SelectUp() { s.sessionList.SelectUp() }
 
