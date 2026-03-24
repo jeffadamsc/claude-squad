@@ -241,6 +241,8 @@ func (i *Instance) Start(firstTimeSetup bool) error {
 				i.Branch = branch
 			}
 		} else if i.selectedBranch != "" {
+			// Fetch latest remote state so origin/* refs (and submodule pointers) are current.
+			git.FetchBranches(i.Path)
 			// Create a new branch based on the selected branch. We use the selected
 			// branch as a ref rather than checking it out directly, because the
 			// selected branch may already be checked out in the main worktree.

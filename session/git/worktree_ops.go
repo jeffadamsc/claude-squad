@@ -143,6 +143,16 @@ func (g *GitWorktree) initAndFetchSubmodules() error {
 		// Non-fatal: submodules are initialized, just not fetched
 	}
 
+	// Update each submodule to the latest commit on its remote default branch.
+	// The parent repo's submodule pointer is often stale, so users starting a
+	// session from origin/main expect submodules to also reflect the latest code.
+	// We try origin/HEAD, origin/main, then origin/master per-submodule (the
+	// shell fallback chain means one submodule failing doesn't block others).
+	if _, err := g.runGitCommand(g.worktreePath, "submodule", "foreach", "--recursive",
+		"sh", "-c", "git checkout origin/HEAD 2>/dev/null || git checkout origin/main 2>/dev/null || git checkout origin/master 2>/dev/null || true"); err != nil {
+		log.WarningLog.Printf("failed to update submodules to latest remote branch: %v", err)
+	}
+
 	return nil
 }
 
