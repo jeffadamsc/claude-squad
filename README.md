@@ -1,6 +1,8 @@
-# Claude Squad
+# Claude Squad IDE
 
 A native desktop app that manages multiple [Claude Code](https://github.com/anthropics/claude-code), [Codex](https://github.com/openai/codex), [Gemini](https://github.com/google-gemini/gemini-cli) (and other local agents including [Aider](https://github.com/Aider-AI/aider)) in separate workspaces, allowing you to work on multiple tasks simultaneously.
+
+> *Originally forked from [smtg-ai/claude-squad](https://github.com/smtg-ai/claude-squad), licensed under [AGPL-3.0](LICENSE.md).*
 
 ### Highlights
 - Run multiple AI agent sessions side by side in a native GUI
@@ -14,8 +16,8 @@ A native desktop app that manages multiple [Claude Code](https://github.com/anth
 Build from source:
 
 ```bash
-git clone https://github.com/jeffadamsc/claude-squad.git
-cd claude-squad
+git clone https://github.com/jeffadamsc/claude-squad-ide.git
+cd claude-squad-ide
 go build -o cs .
 ```
 
