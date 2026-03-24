@@ -1,6 +1,6 @@
-# Claude Squad [![CI](https://github.com/smtg-ai/claude-squad/actions/workflows/build.yml/badge.svg)](https://github.com/smtg-ai/claude-squad/actions/workflows/build.yml) [![GitHub Release](https://img.shields.io/github/v/release/smtg-ai/claude-squad)](https://github.com/smtg-ai/claude-squad/releases/latest)
+# Claude Squad
 
-[Claude Squad](https://smtg-ai.github.io/claude-squad/) is a native desktop app that manages multiple [Claude Code](https://github.com/anthropics/claude-code), [Codex](https://github.com/openai/codex), [Gemini](https://github.com/google-gemini/gemini-cli) (and other local agents including [Aider](https://github.com/Aider-AI/aider)) in separate workspaces, allowing you to work on multiple tasks simultaneously.
+A native desktop app that manages multiple [Claude Code](https://github.com/anthropics/claude-code), [Codex](https://github.com/openai/codex), [Gemini](https://github.com/google-gemini/gemini-cli) (and other local agents including [Aider](https://github.com/Aider-AI/aider)) in separate workspaces, allowing you to work on multiple tasks simultaneously.
 
 ### Highlights
 - Run multiple AI agent sessions side by side in a native GUI
@@ -11,33 +11,20 @@
 
 ### Installation
 
-Both Homebrew and manual installation will install Claude Squad as `cs` on your system.
-
-#### Homebrew
+Build from source:
 
 ```bash
-brew install claude-squad
-ln -s "$(brew --prefix)/bin/claude-squad" "$(brew --prefix)/bin/cs"
+git clone https://github.com/jeffadamsc/claude-squad.git
+cd claude-squad
+go build -o cs .
 ```
 
-#### Manual
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/smtg-ai/claude-squad/main/install.sh | bash
-```
-
-This puts the `cs` binary in `~/.local/bin`.
-
-To use a custom name for the binary:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/smtg-ai/claude-squad/main/install.sh | bash -s -- --name <your-binary-name>
-```
+Place the `cs` binary somewhere on your `$PATH` (e.g. `~/.local/bin`).
 
 ### Prerequisites
 
-- [tmux](https://github.com/tmux/tmux/wiki/Installing)
-- [gh](https://cli.github.com/)
+- [Go](https://go.dev/dl/) 1.21+ (to build)
+- [tmux](https://github.com/tmux/tmux/wiki/Installing) (used under the hood for agent terminal sessions)
 
 ### Usage
 
@@ -65,15 +52,12 @@ Launch the app from inside a git repository:
 cs
 ```
 
-NOTE: The default program is `claude` and we recommend using the latest version.
+The default program is `claude`. You can override it with `-p` or by configuring profiles (see below).
 
-**Using Claude Squad with other AI assistants:**
-- For [Codex](https://github.com/openai/codex): Set your API key with `export OPENAI_API_KEY=<your_key>`
-- Launch with specific assistants:
-   - Codex: `cs -p "codex"`
-   - Aider: `cs -p "aider ..."`
-   - Gemini: `cs -p "gemini"`
-- Make this the default by modifying the config file (locate with `cs debug`)
+**Using other AI assistants:**
+- Codex: `cs -p "codex"` (set `OPENAI_API_KEY` first)
+- Aider: `cs -p "aider ..."`
+- Gemini: `cs -p "gemini"`
 
 ### Keyboard Shortcuts
 
@@ -102,8 +86,6 @@ Claude Squad stores its configuration in `~/.claude-squad/config.json`. You can 
 
 Profiles let you define multiple named program configurations and switch between them when creating a new session. The new session dialog shows a profile dropdown when more than one profile is defined.
 
-To configure profiles, add a `profiles` array to your config file and set `default_program` to the name of the profile to select by default:
-
 ```json
 {
   "default_program": "claude",
@@ -115,8 +97,6 @@ To configure profiles, add a `profiles` array to your config file and set `defau
 }
 ```
 
-Each profile has two fields:
-
 | Field     | Description                                              |
 |-----------|----------------------------------------------------------|
 | `name`    | Display name shown in the profile picker                 |
@@ -124,20 +104,12 @@ Each profile has two fields:
 
 If no profiles are defined, Claude Squad uses `default_program` directly as the launch command (the default is `claude`).
 
-### FAQs
-
-#### Failed to start new session
-
-If you get an error like `failed to start new session: timed out waiting for tmux session`, update the
-underlying program (ex. `claude`) to the latest version.
-
 ### How It Works
 
 1. **tmux** to create isolated terminal sessions for each agent
 2. **git worktrees** to isolate codebases so each session works on its own branch
-3. A native GUI with embedded terminal panes for viewing and interacting with sessions
+3. A native GUI (Fyne) with embedded terminal panes for viewing and interacting with sessions
 
 ### License
 
 [AGPL-3.0](LICENSE.md)
-
