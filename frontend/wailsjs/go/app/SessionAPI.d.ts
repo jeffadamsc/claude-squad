@@ -7,8 +7,24 @@ export function Close():Promise<void>;
 
 export function CreateSession(arg1:app.CreateOptions):Promise<app.SessionInfo>;
 
+export function DeleteSession(arg1:string):Promise<void>;
+
 export function GetConfig():Promise<config.Config>;
+
+export function GetSessionStatus(arg1:string):Promise<app.SessionStatus>;
 
 export function GetWebSocketPort():Promise<number>;
 
+export function KillSession(arg1:string):Promise<void>;
+
 export function LoadSessions():Promise<Array<app.SessionInfo>>;
+
+export function PauseSession(arg1:string):Promise<void>;
+
+export function PollAllStatuses():Promise<Array<app.SessionStatus>>;
+
+export function ResumeSession(arg1:string):Promise<void>;
+
+export function SendPrompt(arg1:string,arg2:string):Promise<void>;
+
+export function StartSession(arg1:string):Promise<void>;

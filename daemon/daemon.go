@@ -3,6 +3,7 @@ package daemon
 import (
 	"claude-squad/config"
 	"claude-squad/log"
+	"claude-squad/pty"
 	"claude-squad/session"
 	"fmt"
 	"os"
@@ -24,7 +25,10 @@ func RunDaemon(cfg *config.Config) error {
 		return fmt.Errorf("failed to initialize storage: %w", err)
 	}
 
-	instances, err := storage.LoadInstances()
+	mgr := pty.NewManager()
+	defer mgr.Close()
+
+	instances, err := storage.LoadInstances(mgr)
 	if err != nil {
 		return fmt.Errorf("failed to load instances: %w", err)
 	}

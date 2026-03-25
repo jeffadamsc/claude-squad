@@ -10,14 +10,46 @@ export function CreateSession(arg1) {
   return window['go']['app']['SessionAPI']['CreateSession'](arg1);
 }
 
+export function DeleteSession(arg1) {
+  return window['go']['app']['SessionAPI']['DeleteSession'](arg1);
+}
+
 export function GetConfig() {
   return window['go']['app']['SessionAPI']['GetConfig']();
+}
+
+export function GetSessionStatus(arg1) {
+  return window['go']['app']['SessionAPI']['GetSessionStatus'](arg1);
 }
 
 export function GetWebSocketPort() {
   return window['go']['app']['SessionAPI']['GetWebSocketPort']();
 }
 
+export function KillSession(arg1) {
+  return window['go']['app']['SessionAPI']['KillSession'](arg1);
+}
+
 export function LoadSessions() {
   return window['go']['app']['SessionAPI']['LoadSessions']();
+}
+
+export function PauseSession(arg1) {
+  return window['go']['app']['SessionAPI']['PauseSession'](arg1);
+}
+
+export function PollAllStatuses() {
+  return window['go']['app']['SessionAPI']['PollAllStatuses']();
+}
+
+export function ResumeSession(arg1) {
+  return window['go']['app']['SessionAPI']['ResumeSession'](arg1);
+}
+
+export function SendPrompt(arg1, arg2) {
+  return window['go']['app']['SessionAPI']['SendPrompt'](arg1, arg2);
+}
+
+export function StartSession(arg1) {
+  return window['go']['app']['SessionAPI']['StartSession'](arg1);
 }

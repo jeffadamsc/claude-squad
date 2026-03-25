@@ -73,8 +73,9 @@ func (s *Storage) SaveInstances(instances []*Instance) error {
 	return s.state.SaveInstances(jsonData)
 }
 
-// LoadInstances loads the list of instances from disk
-func (s *Storage) LoadInstances() ([]*Instance, error) {
+// LoadInstances loads the list of instances from disk.
+// The ProcessManager is passed to FromInstanceData for restoring non-paused sessions.
+func (s *Storage) LoadInstances(pm ProcessManager) ([]*Instance, error) {
 	jsonData := s.state.GetInstances()
 
 	var instancesData []InstanceData
@@ -84,7 +85,7 @@ func (s *Storage) LoadInstances() ([]*Instance, error) {
 
 	instances := make([]*Instance, len(instancesData))
 	for i, data := range instancesData {
-		instance, err := FromInstanceData(data)
+		instance, err := FromInstanceData(data, pm)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create instance %s: %w", data.Title, err)
 		}
@@ -94,19 +95,38 @@ func (s *Storage) LoadInstances() ([]*Instance, error) {
 	return instances, nil
 }
 
+// LoadInstancesData loads the raw instance data without restoring processes.
+func (s *Storage) LoadInstancesData() ([]InstanceData, error) {
+	jsonData := s.state.GetInstances()
+
+	var instancesData []InstanceData
+	if err := json.Unmarshal(jsonData, &instancesData); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal instances: %w", err)
+	}
+	return instancesData, nil
+}
+
+// SaveInstancesData saves raw instance data to disk.
+func (s *Storage) SaveInstancesData(data []InstanceData) error {
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal instances: %w", err)
+	}
+	return s.state.SaveInstances(jsonData)
+}
+
 // DeleteInstance removes an instance from storage
 func (s *Storage) DeleteInstance(title string) error {
-	instances, err := s.LoadInstances()
+	allData, err := s.LoadInstancesData()
 	if err != nil {
 		return fmt.Errorf("failed to load instances: %w", err)
 	}
 
 	found := false
-	newInstances := make([]*Instance, 0)
-	for _, instance := range instances {
-		data := instance.ToInstanceData()
-		if data.Title != title {
-			newInstances = append(newInstances, instance)
+	filtered := make([]InstanceData, 0, len(allData))
+	for _, d := range allData {
+		if d.Title != title {
+			filtered = append(filtered, d)
 		} else {
 			found = true
 		}
@@ -116,22 +136,21 @@ func (s *Storage) DeleteInstance(title string) error {
 		return fmt.Errorf("instance not found: %s", title)
 	}
 
-	return s.SaveInstances(newInstances)
+	return s.SaveInstancesData(filtered)
 }
 
 // UpdateInstance updates an existing instance in storage
 func (s *Storage) UpdateInstance(instance *Instance) error {
-	instances, err := s.LoadInstances()
+	allData, err := s.LoadInstancesData()
 	if err != nil {
 		return fmt.Errorf("failed to load instances: %w", err)
 	}
 
 	data := instance.ToInstanceData()
 	found := false
-	for i, existing := range instances {
-		existingData := existing.ToInstanceData()
-		if existingData.Title == data.Title {
-			instances[i] = instance
+	for i, existing := range allData {
+		if existing.Title == data.Title {
+			allData[i] = data
 			found = true
 			break
 		}
@@ -141,7 +160,7 @@ func (s *Storage) UpdateInstance(instance *Instance) error {
 		return fmt.Errorf("instance not found: %s", data.Title)
 	}
 
-	return s.SaveInstances(instances)
+	return s.SaveInstancesData(allData)
 }
 
 // DeleteAllInstances removes all stored instances

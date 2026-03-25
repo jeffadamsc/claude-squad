@@ -112,19 +112,22 @@ func (i *Instance) ToInstanceData() InstanceData {
 	return data
 }
 
-// FromInstanceData creates a new Instance from serialized data
-func FromInstanceData(data InstanceData) (*Instance, error) {
+// FromInstanceData creates a new Instance from serialized data.
+// The ProcessManager is required for non-paused instances to restore the process.
+// Pass nil if only loading metadata (e.g. for paused sessions).
+func FromInstanceData(data InstanceData, pm ProcessManager) (*Instance, error) {
 	instance := &Instance{
-		Title:     data.Title,
-		Path:      data.Path,
-		Branch:    data.Branch,
-		Status:    data.Status,
-		Height:    data.Height,
-		Width:     data.Width,
-		CreatedAt: data.CreatedAt,
-		UpdatedAt: data.UpdatedAt,
-		Program:   data.Program,
-		inPlace:   data.InPlace,
+		Title:          data.Title,
+		Path:           data.Path,
+		Branch:         data.Branch,
+		Status:         data.Status,
+		Height:         data.Height,
+		Width:          data.Width,
+		CreatedAt:      data.CreatedAt,
+		UpdatedAt:      data.UpdatedAt,
+		Program:        data.Program,
+		inPlace:        data.InPlace,
+		processManager: pm,
 		diffStats: &git.DiffStats{
 			Added:   data.DiffStats.Added,
 			Removed: data.DiffStats.Removed,

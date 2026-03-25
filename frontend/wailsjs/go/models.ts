@@ -22,6 +22,20 @@ export namespace app {
 	        this.inPlace = source["inPlace"];
 	    }
 	}
+	export class DiffStats {
+	    added: number;
+	    removed: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DiffStats(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.added = source["added"];
+	        this.removed = source["removed"];
+	    }
+	}
 	export class SessionInfo {
 	    id: string;
 	    title: string;
@@ -43,6 +57,44 @@ export namespace app {
 	        this.program = source["program"];
 	        this.status = source["status"];
 	    }
+	}
+	export class SessionStatus {
+	    id: string;
+	    status: string;
+	    branch: string;
+	    diffStats: DiffStats;
+	    hasPrompt: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SessionStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.status = source["status"];
+	        this.branch = source["branch"];
+	        this.diffStats = this.convertValues(source["diffStats"], DiffStats);
+	        this.hasPrompt = source["hasPrompt"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

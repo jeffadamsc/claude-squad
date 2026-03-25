@@ -1,6 +1,9 @@
 package app
 
 import (
+	"claude-squad/config"
+	ptyPkg "claude-squad/pty"
+	"claude-squad/session"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -31,12 +34,30 @@ func TestSessionAPI_GetWebSocketPort(t *testing.T) {
 	assert.Greater(t, port, 0)
 }
 
+// newTestAPI creates a SessionAPI with isolated storage (empty state).
 func newTestAPI(t *testing.T) *SessionAPI {
 	t.Helper()
-	api, err := NewSessionAPI(SessionAPIOptions{
-		DataDir: t.TempDir(),
-	})
+
+	mgr := ptyPkg.NewManager()
+	ws := ptyPkg.NewWebSocketServer(mgr)
+	port, err := ws.ListenAndServe()
 	require.NoError(t, err)
+
+	// Use empty state so tests don't load real sessions
+	state := config.DefaultState()
+	storage, err := session.NewStorage(state)
+	require.NoError(t, err)
+
+	cfg := config.LoadConfig()
+
+	api := &SessionAPI{
+		instances:  make(map[string]*session.Instance),
+		storage:    storage,
+		ptyManager: mgr,
+		wsServer:   ws,
+		wsPort:     port,
+		cfg:        cfg,
+	}
 	t.Cleanup(func() { api.Close() })
 	return api
 }
