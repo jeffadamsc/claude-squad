@@ -242,3 +242,15 @@ Same Ctrl+Shift modifier pattern as current app, registered on `document`:
 - `wails build` produces a single binary with embedded frontend assets
 - Update CLAUDE.md build instructions
 - `cs` binary at `~/.local/bin/cs` remains the install target
+
+## Planning Notes
+
+Points to address during implementation planning:
+
+- **Daemon refactoring:** The daemon currently calls `instance.HasUpdated()` and `instance.TapEnter()`, which delegate to `tmux capture-pane` and `tmux send-keys`. These must be updated to use the PTY monitor's output buffer and write directly to the PTY fd.
+
+- **Platform support:** `creack/pty` has limited Windows support. Windows may need a `conpty` path. The existing codebase has platform-specific files (`tmux_unix.go`, `tmux_windows.go`) — the new PTY manager should follow the same pattern.
+
+- **WebSocket port:** Consider whether Wails' built-in asset server can proxy WebSocket connections (single port) vs. running a separate WebSocket server (two ports). Single port is simpler for the user.
+
+- **Output buffer strategy:** The prompt detection buffer should use a ring buffer with a reasonable size cap (e.g., 64KB) to avoid memory bloat while retaining enough context for pattern matching.
