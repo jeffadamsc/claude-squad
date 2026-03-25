@@ -9,6 +9,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 )
@@ -96,6 +97,21 @@ func (t *tapOverlay) SecondaryTapped(ev *fyne.PointEvent) {
 		t.onSecondaryTap(ev)
 	}
 }
+
+// MouseDown implements desktop.Mouseable for reliable right-click detection.
+// On macOS, two-finger trackpad clicks may not always trigger SecondaryTapped,
+// so we also handle the secondary button at the raw mouse-event level.
+func (t *tapOverlay) MouseDown(ev *desktop.MouseEvent) {
+	if ev.Button == desktop.MouseButtonSecondary && t.onSecondaryTap != nil {
+		t.onSecondaryTap(&fyne.PointEvent{
+			AbsolutePosition: ev.AbsolutePosition,
+			Position:         ev.Position,
+		})
+	}
+}
+
+// MouseUp implements desktop.Mouseable (required counterpart to MouseDown).
+func (t *tapOverlay) MouseUp(*desktop.MouseEvent) {}
 
 func (t *tapOverlay) CreateRenderer() fyne.WidgetRenderer {
 	return widget.NewSimpleRenderer(canvas.NewRectangle(color.Transparent))
