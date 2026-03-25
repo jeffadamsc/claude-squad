@@ -75,8 +75,28 @@ func Run(program string, autoYes bool) error {
 
 	var sidebarWidget *sidebar.Sidebar
 	var paneManager *panes.Manager
+	var rootSplit *container.Split
 	var hotkeyDefs []shortcutDef
 	sidebarVisible := true
+
+	paneActions := panes.PaneActions{
+		SplitHorizontal: func() {
+			paneManager.SplitHorizontal()
+			rootSplit.Trailing = paneManager.Widget()
+			rootSplit.Refresh()
+		},
+		SplitVertical: func() {
+			paneManager.SplitVertical()
+			rootSplit.Trailing = paneManager.Widget()
+			rootSplit.Refresh()
+		},
+		PauseSession: func(inst *session.Instance) {
+			togglePauseResume(inst, state, sidebarWidget)
+		},
+		KillSession: func(inst *session.Instance) {
+			killSession(inst, state, sidebarWidget, paneManager)
+		},
+	}
 
 	// Pane manager — shortcut registrar captures hotkeyDefs by pointer,
 	// which gets populated after RegisterHotkeys below.
@@ -84,7 +104,7 @@ func Run(program string, autoYes bool) error {
 		// Focus callback
 	}, func(target panes.ShortcutAdder) {
 		RegisterTerminalShortcuts(target, hotkeyDefs)
-	}, w.Canvas())
+	}, paneActions, w.Canvas())
 
 	// Sidebar
 	sidebarWidget = sidebar.NewSidebar(
@@ -120,7 +140,7 @@ func Run(program string, autoYes bool) error {
 
 	// Layout: sidebar | panes
 	sidebarObj := sidebarWidget.Widget()
-	rootSplit := container.NewHSplit(sidebarObj, paneManager.Widget())
+	rootSplit = container.NewHSplit(sidebarObj, paneManager.Widget())
 	rootSplit.SetOffset(0.2)
 	rootContainer := container.NewStack(rootSplit)
 

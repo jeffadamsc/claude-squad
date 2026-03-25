@@ -29,14 +29,15 @@ type Manager struct {
 	canvas       fyne.Canvas
 	onFocus      func(*Pane) // callback when focus changes
 	registerKeys ShortcutRegistrar
+	actions      PaneActions
 }
 
 // NewManager creates a new pane manager with a single empty pane.
-func NewManager(onFocus func(*Pane), registerKeys ShortcutRegistrar, c fyne.Canvas) *Manager {
-	m := &Manager{onFocus: onFocus, registerKeys: registerKeys, canvas: c}
+func NewManager(onFocus func(*Pane), registerKeys ShortcutRegistrar, actions PaneActions, c fyne.Canvas) *Manager {
+	m := &Manager{onFocus: onFocus, registerKeys: registerKeys, actions: actions, canvas: c}
 	pane := NewPane(func(p *Pane) {
 		m.FocusPane(p)
-	}, registerKeys, c)
+	}, registerKeys, actions, c)
 	pane.SetFocused(true)
 	m.root = &node{pane: pane}
 	m.focused = m.root
@@ -95,7 +96,7 @@ func (m *Manager) split(horizontal bool) *Pane {
 
 	newPane := NewPane(func(p *Pane) {
 		m.FocusPane(p)
-	}, m.registerKeys, m.canvas)
+	}, m.registerKeys, m.actions, m.canvas)
 
 	oldNode := m.focused
 	parent := oldNode.parent

@@ -29,6 +29,15 @@ type ShortcutAdder interface {
 	AddShortcut(shortcut fyne.Shortcut, handler func(fyne.Shortcut))
 }
 
+// PaneActions provides callbacks for context menu actions that require
+// access to the pane manager or application state.
+type PaneActions struct {
+	SplitHorizontal func()
+	SplitVertical   func()
+	PauseSession    func(*session.Instance)
+	KillSession     func(*session.Instance)
+}
+
 // Pane represents a single terminal pane with a header bar.
 type Pane struct {
 	container    *fyne.Container // outer: stack(focusBorder, inner, overlay)
@@ -45,6 +54,7 @@ type Pane struct {
 	focused      bool
 	onFocus      func(*Pane)
 	registerKeys ShortcutRegistrar
+	actions      PaneActions
 }
 
 // tapOverlay is an invisible full-pane overlay that intercepts clicks.
@@ -77,10 +87,11 @@ func (t *tapOverlay) CreateRenderer() fyne.WidgetRenderer {
 }
 
 // NewPane creates a new empty pane.
-func NewPane(onFocus func(*Pane), registerKeys ShortcutRegistrar, c fyne.Canvas) *Pane {
+func NewPane(onFocus func(*Pane), registerKeys ShortcutRegistrar, actions PaneActions, c fyne.Canvas) *Pane {
 	p := &Pane{
 		conn:         NewTerminalConnection(),
 		registerKeys: registerKeys,
+		actions:      actions,
 		canvas:       c,
 		titleLabel:  widget.NewLabel("No session"),
 		statusIcon:  canvas.NewText("", colorOverlay),
