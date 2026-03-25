@@ -62,6 +62,25 @@ func TestManager_Resize(t *testing.T) {
 	m.Kill(id)
 }
 
+func TestManager_MonitorIntegration(t *testing.T) {
+	m := NewManager()
+	defer m.Close()
+
+	id, err := m.Spawn("/bin/sh", []string{"-c", "echo monitored-output; sleep 2"}, SpawnOptions{})
+	require.NoError(t, err)
+
+	time.Sleep(300 * time.Millisecond)
+
+	content := m.GetContent(id)
+	assert.Contains(t, content, "monitored-output")
+
+	updated, _ := m.HasUpdated(id)
+	assert.True(t, updated)
+
+	updated, _ = m.HasUpdated(id)
+	assert.False(t, updated)
+}
+
 func TestManager_KillNonexistent(t *testing.T) {
 	m := NewManager()
 	defer m.Close()

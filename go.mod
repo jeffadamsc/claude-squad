@@ -11,6 +11,7 @@ require (
 	github.com/atotto/clipboard v0.1.4
 	github.com/creack/pty v1.1.24
 	github.com/fyne-io/terminal v0.0.0-20251017200530-824028ddaa5b
+	github.com/gorilla/websocket v1.5.3
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/sys v0.31.0

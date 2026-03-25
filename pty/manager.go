@@ -18,11 +18,14 @@ type SpawnOptions struct {
 }
 
 type Session struct {
-	id     string
-	ptmx   *os.File
-	cmd    *exec.Cmd
-	mu     sync.Mutex
-	closed bool
+	id      string
+	ptmx    *os.File
+	cmd     *exec.Cmd
+	mu      sync.Mutex
+	closed  bool
+	monitor *Monitor
+	pipeR   *io.PipeReader
+	pipeW   *io.PipeWriter
 }
 
 func (s *Session) Write(p []byte) (int, error) {
@@ -35,7 +38,7 @@ func (s *Session) Write(p []byte) (int, error) {
 }
 
 func (s *Session) Read(p []byte) (int, error) {
-	return s.ptmx.Read(p)
+	return s.pipeR.Read(p)
 }
 
 func (s *Session) Closed() bool {
@@ -51,6 +54,7 @@ func (s *Session) close() {
 		return
 	}
 	s.closed = true
+	s.pipeW.Close()
 	s.ptmx.Close()
 	s.cmd.Process.Kill()
 	s.cmd.Wait()
@@ -94,24 +98,35 @@ func (m *Manager) Spawn(program string, args []string, opts SpawnOptions) (strin
 		return "", fmt.Errorf("pty start: %w", err)
 	}
 
+	pipeR, pipeW := io.Pipe()
+	monitor := NewMonitor(64 * 1024)
+
 	m.mu.Lock()
 	m.counter++
 	id := fmt.Sprintf("session-%d", m.counter)
 	sess := &Session{
-		id:   id,
-		ptmx: ptmx,
-		cmd:  cmd,
+		id:      id,
+		ptmx:    ptmx,
+		cmd:     cmd,
+		monitor: monitor,
+		pipeR:   pipeR,
+		pipeW:   pipeW,
 	}
 	m.sessions[id] = sess
 	m.mu.Unlock()
 
-	// Drain PTY output so cmd.Wait() can complete when the process exits.
+	// Tee PTY output to both monitor and pipe (for WebSocket consumers).
 	go func() {
-		buf := make([]byte, 4096)
+		buf := make([]byte, 32*1024)
 		for {
-			_, err := ptmx.Read(buf)
+			n, err := ptmx.Read(buf)
+			if n > 0 {
+				sess.monitor.Write(buf[:n])
+				sess.pipeW.Write(buf[:n])
+			}
 			if err != nil {
-				break
+				sess.pipeW.CloseWithError(err)
+				return
 			}
 		}
 	}()
@@ -173,4 +188,45 @@ func (m *Manager) Close() {
 		sess.close()
 		delete(m.sessions, id)
 	}
+}
+
+func (m *Manager) GetContent(id string) string {
+	m.mu.RLock()
+	sess, ok := m.sessions[id]
+	m.mu.RUnlock()
+	if !ok {
+		return ""
+	}
+	return sess.monitor.Content()
+}
+
+func (m *Manager) HasUpdated(id string) (bool, bool) {
+	m.mu.RLock()
+	sess, ok := m.sessions[id]
+	m.mu.RUnlock()
+	if !ok {
+		return false, false
+	}
+	return sess.monitor.HasUpdated()
+}
+
+func (m *Manager) CheckTrustPrompt(id string) bool {
+	m.mu.RLock()
+	sess, ok := m.sessions[id]
+	m.mu.RUnlock()
+	if !ok {
+		return false
+	}
+	return sess.monitor.CheckTrustPrompt()
+}
+
+func (m *Manager) Write(id string, data []byte) error {
+	m.mu.RLock()
+	sess, ok := m.sessions[id]
+	m.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("session %s not found", id)
+	}
+	_, err := sess.Write(data)
+	return err
 }
