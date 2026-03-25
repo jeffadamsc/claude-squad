@@ -44,6 +44,13 @@ export interface RemoteDirEntry {
   isDir: boolean;
 }
 
+export interface DirectoryEntry {
+  name: string;
+  path: string;
+  isDir: boolean;
+  size: number;
+}
+
 export interface CreateHostOptions {
   name: string;
   host: string;
@@ -102,6 +109,9 @@ declare global {
           CheckRemoteGitRepo(hostId: string, dir: string): Promise<boolean>;
           SetHostLastPath(hostId: string, path: string): Promise<void>;
           SelectFile(startDir: string): Promise<string>;
+          ListDirectory(sessionId: string, dirPath: string): Promise<DirectoryEntry[]>;
+          ReadFile(sessionId: string, filePath: string): Promise<string>;
+          WriteFile(sessionId: string, filePath: string, contents: string): Promise<void>;
         };
       };
     };
