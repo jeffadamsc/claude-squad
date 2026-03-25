@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"path/filepath"
 	"sync"
 
 	"claude-squad/config"
@@ -9,6 +10,7 @@ import (
 	ptyPkg "claude-squad/pty"
 	"claude-squad/session"
 	"claude-squad/session/git"
+	sshPkg "claude-squad/ssh"
 )
 
 type SessionAPIOptions struct {
@@ -23,6 +25,7 @@ type CreateOptions struct {
 	AutoYes bool   `json:"autoYes"`
 	InPlace bool   `json:"inPlace"`
 	Prompt  string `json:"prompt"`
+	HostID  string `json:"hostId"`
 }
 
 type SessionInfo struct {
@@ -32,14 +35,16 @@ type SessionInfo struct {
 	Branch  string `json:"branch"`
 	Program string `json:"program"`
 	Status  string `json:"status"`
+	HostID  string `json:"hostId"`
 }
 
 type SessionStatus struct {
-	ID        string    `json:"id"`
-	Status    string    `json:"status"`
-	Branch    string    `json:"branch"`
-	DiffStats DiffStats `json:"diffStats"`
-	HasPrompt bool      `json:"hasPrompt"`
+	ID           string    `json:"id"`
+	Status       string    `json:"status"`
+	Branch       string    `json:"branch"`
+	DiffStats    DiffStats `json:"diffStats"`
+	HasPrompt    bool      `json:"hasPrompt"`
+	SSHConnected *bool     `json:"sshConnected"`
 }
 
 type DiffStats struct {
@@ -48,14 +53,17 @@ type DiffStats struct {
 }
 
 type SessionAPI struct {
-	mu         sync.RWMutex
-	instances  map[string]*session.Instance
-	storage    *session.Storage
-	ptyManager *ptyPkg.Manager
-	wsServer   *ptyPkg.WebSocketServer
-	wsPort     int
-	cfg        *config.Config
-	dirty      bool // true when instances have been modified and need saving
+	mu            sync.RWMutex
+	instances     map[string]*session.Instance
+	storage       *session.Storage
+	ptyManager    *ptyPkg.Manager
+	wsServer      *ptyPkg.WebSocketServer
+	wsPort        int
+	cfg           *config.Config
+	dirty         bool // true when instances have been modified and need saving
+	hostManager   *sshPkg.HostManager
+	hostStore     *sshPkg.HostStore
+	keychainStore *sshPkg.KeychainStore
 }
 
 func NewSessionAPI(opts SessionAPIOptions) (*SessionAPI, error) {
@@ -74,13 +82,21 @@ func NewSessionAPI(opts SessionAPIOptions) (*SessionAPI, error) {
 		return nil, fmt.Errorf("init storage: %w", err)
 	}
 
+	configDir, _ := config.GetConfigDir()
+	hostStore := sshPkg.NewHostStore(filepath.Join(configDir, "hosts.json"))
+	keychainStore := sshPkg.NewKeychainStore("com.claude-squad")
+	hostMgr := sshPkg.NewHostManager(hostStore, keychainStore)
+
 	api := &SessionAPI{
-		instances:  make(map[string]*session.Instance),
-		storage:    storage,
-		ptyManager: mgr,
-		wsServer:   ws,
-		wsPort:     port,
-		cfg:        cfg,
+		instances:     make(map[string]*session.Instance),
+		storage:       storage,
+		ptyManager:    mgr,
+		wsServer:      ws,
+		wsPort:        port,
+		cfg:           cfg,
+		hostManager:   hostMgr,
+		hostStore:     hostStore,
+		keychainStore: keychainStore,
 	}
 
 	// Load persisted sessions as metadata. Sessions that were running when
@@ -133,6 +149,7 @@ func instanceToInfo(inst *session.Instance) SessionInfo {
 		Branch:  inst.Branch,
 		Program: inst.Program,
 		Status:  statusString(inst.Status),
+		HostID:  inst.HostID,
 	}
 }
 
@@ -145,6 +162,18 @@ func (api *SessionAPI) CreateSession(opts CreateOptions) (*SessionInfo, error) {
 		program = api.cfg.DefaultProgram
 	}
 
+	var pm session.ProcessManager = api.ptyManager
+	if opts.HostID != "" {
+		if _, err := api.hostManager.GetClient(opts.HostID); err != nil {
+			return nil, fmt.Errorf("connect to remote host: %w", err)
+		}
+		sshPM, err := api.hostManager.GetProcessManager(opts.HostID)
+		if err != nil {
+			return nil, fmt.Errorf("get ssh process manager: %w", err)
+		}
+		pm = sshPM
+	}
+
 	inst, err := session.NewInstance(session.InstanceOptions{
 		Title:          opts.Title,
 		Path:           opts.Path,
@@ -153,7 +182,8 @@ func (api *SessionAPI) CreateSession(opts CreateOptions) (*SessionInfo, error) {
 		Branch:         opts.Branch,
 		InPlace:        opts.InPlace,
 		Prompt:         opts.Prompt,
-		ProcessManager: api.ptyManager,
+		HostID:         opts.HostID,
+		ProcessManager: pm,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create instance: %w", err)
@@ -179,6 +209,18 @@ func (api *SessionAPI) OpenSession(id string) (string, error) {
 	if !ok {
 		log.ErrorLog.Printf("OpenSession: session %q not found (have %d instances)", id, len(api.instances))
 		return "", fmt.Errorf("session %s not found", id)
+	}
+
+	// Reconnect remote sessions if needed
+	if inst.HostID != "" {
+		if _, err := api.hostManager.GetClient(inst.HostID); err != nil {
+			return "", fmt.Errorf("reconnect to remote host: %w", err)
+		}
+		pm, err := api.hostManager.GetProcessManager(inst.HostID)
+		if err != nil {
+			return "", fmt.Errorf("get ssh process manager: %w", err)
+		}
+		inst.SetProcessManager(pm)
 	}
 
 	// Resume paused sessions
@@ -339,12 +381,19 @@ func (api *SessionAPI) PollAllStatuses() ([]SessionStatus, error) {
 			ds = DiffStats{Added: stats.Added, Removed: stats.Removed}
 		}
 
+		var sshConnected *bool
+		if inst.HostID != "" {
+			connected := api.hostManager.IsConnected(inst.HostID)
+			sshConnected = &connected
+		}
+
 		result = append(result, SessionStatus{
-			ID:        inst.Title,
-			Status:    statusString(inst.Status),
-			Branch:    inst.Branch,
-			DiffStats: ds,
-			HasPrompt: hasPrompt,
+			ID:           inst.Title,
+			Status:       statusString(inst.Status),
+			Branch:       inst.Branch,
+			DiffStats:    ds,
+			HasPrompt:    hasPrompt,
+			SSHConnected: sshConnected,
 		})
 	}
 	return result, nil
@@ -416,6 +465,9 @@ func (api *SessionAPI) Close() {
 	// Only save state if we actually modified something
 	api.saveInstancesLocked()
 	api.ptyManager.Close()
+	if api.hostManager != nil {
+		api.hostManager.Close()
+	}
 }
 
 // saveInstancesLocked persists all instances to disk. Must be called with api.mu held.

@@ -171,6 +171,18 @@ func (hm *HostManager) reconnectLoop(hostID string) {
 	}
 }
 
+// IsConnected returns whether the SSH connection for a host is alive.
+// Read-only — does not create connections or change refcounts.
+func (hm *HostManager) IsConnected(hostID string) bool {
+	hm.mu.Lock()
+	defer hm.mu.Unlock()
+	mc, ok := hm.clients[hostID]
+	if !ok {
+		return false
+	}
+	return mc.client.Connected()
+}
+
 // Close shuts down all managed connections.
 func (hm *HostManager) Close() {
 	hm.mu.Lock()

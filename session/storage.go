@@ -22,6 +22,7 @@ type InstanceData struct {
 
 	Program          string          `json:"program"`
 	ClaudeSessionID  string          `json:"claude_session_id,omitempty"`
+	HostID           string          `json:"host_id,omitempty"`
 	Worktree  GitWorktreeData `json:"worktree"`
 	DiffStats DiffStatsData   `json:"diff_stats"`
 }

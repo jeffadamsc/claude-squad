@@ -62,6 +62,8 @@ type Instance struct {
 	Prompt string
 	// ClaudeSessionID is the UUID of the claude conversation, used for --resume
 	ClaudeSessionID string
+	// HostID is the SSH host ID for remote sessions (empty = local).
+	HostID string
 
 	// DiffStats stores the current git diff statistics
 	diffStats *git.DiffStats
@@ -98,6 +100,7 @@ func (i *Instance) ToInstanceData() InstanceData {
 		AutoYes:         i.AutoYes,
 		InPlace:         i.inPlace,
 		ClaudeSessionID: i.ClaudeSessionID,
+		HostID:          i.HostID,
 	}
 
 	// Only include worktree data if gitWorktree is initialized
@@ -140,6 +143,7 @@ func FromInstanceData(data InstanceData, pm ProcessManager) (*Instance, error) {
 		Program:         data.Program,
 		inPlace:         data.InPlace,
 		ClaudeSessionID: data.ClaudeSessionID,
+		HostID:          data.HostID,
 		processManager:  pm,
 		diffStats: &git.DiffStats{
 			Added:   data.DiffStats.Added,
@@ -188,6 +192,8 @@ type InstanceOptions struct {
 	InPlace bool
 	// Prompt is the initial prompt to pass to the instance on startup.
 	Prompt string
+	// HostID is the SSH host ID for remote sessions (empty = local).
+	HostID string
 	// ProcessManager manages the terminal process lifecycle.
 	ProcessManager ProcessManager
 }
@@ -212,6 +218,7 @@ func NewInstance(opts InstanceOptions) (*Instance, error) {
 		UpdatedAt:      t,
 		AutoYes:        opts.AutoYes,
 		Prompt:         opts.Prompt,
+		HostID:         opts.HostID,
 		selectedBranch: opts.Branch,
 		inPlace:        opts.InPlace,
 		processManager: opts.ProcessManager,
