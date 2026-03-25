@@ -64,8 +64,16 @@ type tapOverlay struct {
 	widget.BaseWidget
 	onTap          func()
 	onSecondaryTap func(*fyne.PointEvent)
+	onScroll       func(dy float32)
 	focusable      fyne.Focusable // set when a terminal is connected
 	canvas         fyne.Canvas
+}
+
+// Scrolled implements fyne.Scrollable for hover-based mouse wheel scrolling.
+func (t *tapOverlay) Scrolled(ev *fyne.ScrollEvent) {
+	if t.onScroll != nil {
+		t.onScroll(ev.Scrolled.DY)
+	}
 }
 
 func newTapOverlay(c fyne.Canvas, onTap func()) *tapOverlay {
@@ -136,6 +144,19 @@ func NewPane(onFocus func(*Pane), registerKeys ShortcutRegistrar, actions PaneAc
 			p.onFocus(p)
 		}
 		p.showContextMenu(ev)
+	}
+
+	const scrollLines = 3
+	p.overlay.onScroll = func(dy float32) {
+		term := p.conn.Terminal()
+		if term == nil {
+			return
+		}
+		if dy > 0 {
+			term.ScrollUp(scrollLines)
+		} else if dy < 0 {
+			term.ScrollDown(scrollLines)
+		}
 	}
 
 	emptyLabel := widget.NewLabel("Select a session to open here")
