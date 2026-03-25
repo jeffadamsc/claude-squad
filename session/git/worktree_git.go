@@ -86,12 +86,19 @@ func SearchBranches(repoPath, filter string) ([]string, error) {
 	return branches, nil
 }
 
-// runGitCommand executes a git command and returns any error
-func (g *GitWorktree) runGitCommand(path string, args ...string) (string, error) {
-	baseArgs := []string{"-C", path}
-	cmd := exec.Command("git", append(baseArgs, args...)...)
+// getExecutor returns the configured executor, falling back to defaultExecutor.
+func (g *GitWorktree) getExecutor() CommandExecutor {
+	if g.executor != nil {
+		return g.executor
+	}
+	return defaultExecutor
+}
 
-	output, err := cmd.CombinedOutput()
+// runGitCommand executes a git command and returns any error.
+// Uses the configured executor (local or remote SSH).
+func (g *GitWorktree) runGitCommand(path string, args ...string) (string, error) {
+	fullArgs := append([]string{"-C", path}, args...)
+	output, err := g.getExecutor().Run("", "git", fullArgs...)
 	if err != nil {
 		return "", fmt.Errorf("git command failed: %s (%w)", output, err)
 	}
@@ -126,22 +133,16 @@ func (g *GitWorktree) PushChanges(commitMessage string, open bool) error {
 	}
 
 	// First push the branch to remote to ensure it exists
-	pushCmd := exec.Command("gh", "repo", "sync", "--source", "-b", g.branchName)
-	pushCmd.Dir = g.worktreePath
-	if err := pushCmd.Run(); err != nil {
+	if _, err := g.getExecutor().Run(g.worktreePath, "gh", "repo", "sync", "--source", "-b", g.branchName); err != nil {
 		// If sync fails, try creating the branch on remote first
-		gitPushCmd := exec.Command("git", "push", "-u", "origin", g.branchName)
-		gitPushCmd.Dir = g.worktreePath
-		if pushOutput, pushErr := gitPushCmd.CombinedOutput(); pushErr != nil {
+		if pushOutput, pushErr := g.getExecutor().Run(g.worktreePath, "git", "push", "-u", "origin", g.branchName); pushErr != nil {
 			log.ErrorLog.Print(pushErr)
 			return fmt.Errorf("failed to push branch: %s (%w)", pushOutput, pushErr)
 		}
 	}
 
 	// Now sync with remote
-	syncCmd := exec.Command("gh", "repo", "sync", "-b", g.branchName)
-	syncCmd.Dir = g.worktreePath
-	if output, err := syncCmd.CombinedOutput(); err != nil {
+	if output, err := g.getExecutor().Run(g.worktreePath, "gh", "repo", "sync", "-b", g.branchName); err != nil {
 		log.ErrorLog.Print(err)
 		return fmt.Errorf("failed to sync changes: %s (%w)", output, err)
 	}
@@ -207,9 +208,7 @@ func (g *GitWorktree) OpenBranchURL() error {
 		return err
 	}
 
-	cmd := exec.Command("gh", "browse", "--branch", g.branchName)
-	cmd.Dir = g.worktreePath
-	if err := cmd.Run(); err != nil {
+	if _, err := g.getExecutor().Run(g.worktreePath, "gh", "browse", "--branch", g.branchName); err != nil {
 		return fmt.Errorf("failed to open branch URL: %w", err)
 	}
 	return nil

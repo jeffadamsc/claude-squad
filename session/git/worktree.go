@@ -35,6 +35,8 @@ type GitWorktree struct {
 	// baseRef is the ref to base a new branch on (e.g., "origin/main").
 	// Only used during Setup for new worktrees. Empty means use HEAD.
 	baseRef string
+	// executor abstracts command execution (local vs remote SSH).
+	executor CommandExecutor
 }
 
 func NewGitWorktreeFromStorage(repoPath string, worktreePath string, sessionName string, branchName string, baseCommitSHA string, isExistingBranch bool) *GitWorktree {
@@ -45,6 +47,7 @@ func NewGitWorktreeFromStorage(repoPath string, worktreePath string, sessionName
 		branchName:       branchName,
 		baseCommitSHA:    baseCommitSHA,
 		isExistingBranch: isExistingBranch,
+		executor:         defaultExecutor,
 	}
 }
 
@@ -90,6 +93,7 @@ func NewGitWorktree(repoPath string, sessionName string) (tree *GitWorktree, bra
 		sessionName:  sessionName,
 		branchName:   branchName,
 		worktreePath: worktreePath,
+		executor:     defaultExecutor,
 	}, branchName, nil
 }
 
@@ -107,6 +111,7 @@ func NewGitWorktreeFromBranch(repoPath string, branchName string, sessionName st
 		branchName:       branchName,
 		worktreePath:     worktreePath,
 		isExistingBranch: true,
+		executor:         defaultExecutor,
 	}, nil
 }
 
@@ -128,7 +133,13 @@ func NewGitWorktreeFromRef(repoPath string, baseRef string, sessionName string) 
 		branchName:   branchName,
 		worktreePath: worktreePath,
 		baseRef:      baseRef,
+		executor:     defaultExecutor,
 	}, branchName, nil
+}
+
+// SetExecutor overrides the command executor (e.g., for remote SSH execution).
+func (g *GitWorktree) SetExecutor(e CommandExecutor) {
+	g.executor = e
 }
 
 // IsExistingBranch returns whether this worktree uses a pre-existing branch
