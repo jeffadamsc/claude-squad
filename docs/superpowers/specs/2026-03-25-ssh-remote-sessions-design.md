@@ -42,11 +42,36 @@ Located at project root alongside `pty/`, `session/`, etc.
 - Resolves remote `$HOME` on first connect via `echo $HOME`, caches it
 
 **`ssh/process_manager.go`** — implements `session.ProcessManager` over SSH:
-- `Spawn(program, args, opts)` — opens SSH session, requests PTY, starts command. Returns session ID. SSH channel stdout feeds into a local `Monitor` (same 64KB ring buffer) and broadcasts to WebSocket subscribers.
+- `Spawn(program, args, opts)` — opens SSH session, requests PTY, starts command. Returns session ID. Creates a `pty.Session`-compatible wrapper (see WebSocket integration below) with its own `Monitor` and subscriber support. SSH channel stdout feeds into the Monitor and broadcasts to subscribers.
 - `Kill(id)` — sends SIGTERM via SSH session signal, closes channel
 - `Resize(id, rows, cols)` — sends window-change request over SSH channel
 - `Write(id, data)` — writes to SSH session stdin
-- `GetContent(id)`, `HasUpdated(id)`, `CheckTrustPrompt(id)`, `WaitExit(id, timeout)` — all delegate to the same `Monitor` used by local sessions
+- `GetContent(id)`, `HasUpdated(id)`, `CheckTrustPrompt(id)`, `WaitExit(id, timeout)` — all delegate to the Monitor
+
+### WebSocket Integration: Session Registry
+
+The current `WebSocketServer` takes a concrete `*pty.Manager` and calls `manager.Get(sessionID)` to find sessions. SSH sessions are invisible to it. To fix this, introduce a `SessionRegistry` interface:
+
+```go
+// In pty/registry.go
+type StreamableSession interface {
+    Write(p []byte) (int, error)
+    Subscribe() *subscriber
+    Unsubscribe(sub *subscriber)
+    Closed() bool
+    GetSnapshot() []byte  // current monitor buffer for replay on connect
+}
+
+type SessionRegistry interface {
+    Get(id string) StreamableSession
+}
+```
+
+- `pty.Manager` already satisfies this (its `Session` struct has all these methods; add `GetSnapshot()` delegating to `monitor.Content()`)
+- `SSHProcessManager` creates wrapper sessions that satisfy `StreamableSession` — wrapping the SSH channel's stdin for Write, and using a local Monitor + subscriber list for Subscribe/broadcast
+- A `CompositeRegistry` combines both: tries `pty.Manager` first, then `SSHProcessManager`. The WebSocket server takes a `SessionRegistry` instead of `*Manager`.
+
+This is the core data path for terminal rendering — without it, remote terminals display nothing.
 
 ### Git Operations: Command Executor Abstraction
 
@@ -54,23 +79,30 @@ New interface in `session/git`:
 
 ```go
 type CommandExecutor interface {
+    // Run executes a command in the given directory and returns combined output.
+    // Returns the output and an error that preserves exit code semantics
+    // (wraps exec.ExitError for local, equivalent for remote).
     Run(dir string, name string, args ...string) ([]byte, error)
 }
 ```
 
-- `LocalExecutor` — wraps `exec.Command` (current behavior, default)
-- `RemoteExecutor` — wraps SSH client's `RunCommand`
+- `LocalExecutor` — wraps `exec.Command` with `cmd.Dir` set (current behavior, default)
+- `RemoteExecutor` — wraps SSH client. Constructs `cd <dir> && <name> <args...>` with proper shell escaping (using `shellescape` or manual quoting for paths with spaces/special chars). Preserves exit code by inspecting `ssh.ExitError`. Returns combined stdout+stderr to match `CombinedOutput()` semantics.
 
-`GitWorktree` gains an `executor` field (defaults to `LocalExecutor` for backward compatibility). All internal `exec.Command` calls refactored to go through `executor.Run()`.
+`GitWorktree` gains an `executor` field (defaults to `LocalExecutor` for backward compatibility). All internal `exec.Command` calls in `worktree_ops.go`, `worktree_git.go`, and `util.go` refactored to go through `executor.Run()`.
+
+**Standalone git functions** (`GetCurrentBranch`, `GetDefaultBranch`, `FetchBranches`, `SearchBranches`) are called outside of `GitWorktree` (from `Instance.Start()` and `SessionAPI.GetDirInfo()`). For remote sessions, these are handled by the separate API methods `GetRemoteDirInfo` and `SearchRemoteBranches`, which use the SSH client's `RunCommand` directly rather than the executor abstraction. The `Instance.Start()` code path branches: if `HostID` is set, it uses the SSH client to run the equivalent git commands remotely rather than calling the standalone functions.
 
 Remote worktrees use `~/.claude-squad/worktrees/` on the remote machine (same convention as local).
 
 ### Instance & API Changes
 
 **Instance additions:**
-- `HostID string` — empty = localhost, otherwise references a host UUID
-- `remote bool` — derived from HostID
-- Serialized in `InstanceData` for persistence
+- `HostID string` — empty = localhost, otherwise references a host UUID. Serialized as `host_id` in `InstanceData` JSON.
+- `remote bool` — derived from HostID being non-empty
+
+**InstanceData additions:**
+- `HostID string` field, persisted in `state.json`
 
 **CreateOptions additions:**
 - `HostID string` field
@@ -79,6 +111,13 @@ Remote worktrees use `~/.claude-squad/worktrees/` on the remote machine (same co
 - `hostManager *ssh.HostManager` — loads hosts.json, manages active SSH connections (one per host, shared across sessions)
 - `CreateSession()` — if HostID set, looks up host, gets/creates SSH connection, creates `SSHProcessManager`, passes as `ProcessManager`
 - `ResumeSession()` — re-establishes SSH if needed before spawning remote process
+
+**Startup/restore flow for remote sessions:**
+In `NewSessionAPI`, when loading persisted sessions from `state.json`:
+- All sessions (local and remote) are loaded as Paused, same as today
+- Remote sessions (`HostID != ""`) are restored with a nil ProcessManager initially — they are paused so no process is needed yet
+- When the user opens/resumes a remote session, `SessionAPI` checks `HostID`, establishes the SSH connection via `hostManager`, creates an `SSHProcessManager`, calls `inst.SetProcessManager(pm)`, then proceeds with normal resume flow
+- If SSH connection fails at resume time, return error to user, session stays paused
 
 **New API methods:**
 - `GetHosts() []HostInfo`
@@ -125,8 +164,10 @@ Remote worktrees use `~/.claude-squad/worktrees/` on the remote machine (same co
 
 **Auto-reconnect (`ssh/client.go`):**
 - On disconnect: retry every 3 seconds, exponential backoff capping at 30 seconds
-- On reconnect: SSHProcessManager gets new SSH client, Instance re-spawns process with resume logic (check if branch/worktree exists, recreate if needed)
+- Reconnect is coordinated by `HostManager`, not individual sessions. When a shared connection drops, `HostManager` runs a single reconnect loop. On success, it notifies all active sessions on that host.
+- For each notified session: `SessionAPI` spawns a goroutine that acquires `api.mu`, calls `inst.SetProcessManager(newPM)`, then calls `inst.spawnProcess(workDir, true)` to resume. The remote process is assumed dead (SSH session teardown sends SIGHUP). If the worktree is gone, recreate it. If `--resume` fails (conversation not found), start fresh — same logic as local resume.
 - Overlay clears automatically when next poll shows connected
+- Thread safety: the shared `*ssh.Client` is safe for concurrent use (opening multiple channels). The `HostManager` serializes reconnect attempts with a mutex. Individual `SSHProcessManager` instances hold their own session/channel state.
 
 **Tab behavior during disconnect:**
 - User can switch tabs, close session, or pause while disconnected
@@ -147,3 +188,11 @@ Remote worktrees use `~/.claude-squad/worktrees/` on the remote machine (same co
 **Remote home directory:** Resolved via `echo $HOME` on first connect, cached for connection lifetime.
 
 **Program not on PATH:** Caught by test button. If program disappears after session creation, spawn failure surfaces as normal start error.
+
+**Host key verification:** Use `golang.org/x/crypto/ssh/knownhosts` to verify against `~/.ssh/known_hosts`. If the host key is unknown, the Test button shows the fingerprint and asks the user to confirm. On confirmation, the key is appended to `known_hosts`. Reject connections with changed host keys (show error with explanation).
+
+**Platform:** macOS only for now. Keychain integration uses macOS Keychain. If cross-platform support is added later, the secrets storage should be extracted behind an interface with platform-specific implementations.
+
+**Shared connection lifecycle:** When all sessions on a host are paused or killed, the SSH connection is closed after a 30-second idle timeout. If a new session is created or resumed on that host, a fresh connection is established.
+
+**Directory validation for remote paths:** `GetRemoteDirInfo` and `SearchRemoteBranches` gracefully return empty results if the remote directory does not exist or the SSH connection drops mid-request — same behavior as the local `GetDirInfo` error handling.
