@@ -126,7 +126,18 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       return { tabs, activeTabId };
     }),
 
-  setActiveTab: (tabId) => set({ activeTabId: tabId }),
+  setActiveTab: (tabId) => {
+    const { tabs, sessions } = get();
+    const tab = tabs.find((t) => t.id === tabId);
+    if (tab) {
+      const idx = sessions.findIndex((s) => s.id === tab.sessionId);
+      if (idx >= 0) {
+        set({ activeTabId: tabId, selectedSidebarIdx: idx });
+        return;
+      }
+    }
+    set({ activeTabId: tabId });
+  },
   setSelectedSidebarIdx: (idx) => set({ selectedSidebarIdx: idx }),
   toggleSidebar: () =>
     set((state) => ({ sidebarVisible: !state.sidebarVisible })),
