@@ -244,6 +244,25 @@ func (t *Terminal) typeCursorKey(key fyne.KeyName) {
 	}
 }
 
+// ScrollUp writes SGR mouse wheel up escape sequences to the PTY.
+// Each call sends `lines` individual scroll-up events.
+// Tmux interprets these to enter/navigate copy-mode.
+func (t *Terminal) ScrollUp(lines int) {
+	for i := 0; i < lines; i++ {
+		// SGR encoding: button 64 = wheel up, col 1, row 1
+		_, _ = t.in.Write([]byte("\x1b[<64;1;1M"))
+	}
+}
+
+// ScrollDown writes SGR mouse wheel down escape sequences to the PTY.
+// Each call sends `lines` individual scroll-down events.
+func (t *Terminal) ScrollDown(lines int) {
+	for i := 0; i < lines; i++ {
+		// SGR encoding: button 65 = wheel down, col 1, row 1
+		_, _ = t.in.Write([]byte("\x1b[<65;1;1M"))
+	}
+}
+
 type discardWriter struct{}
 
 func (d discardWriter) Write(p []byte) (n int, err error) {
