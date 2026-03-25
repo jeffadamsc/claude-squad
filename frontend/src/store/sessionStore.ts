@@ -1,11 +1,27 @@
 import { create } from "zustand";
-import type { SessionInfo, SessionStatus, HostInfo } from "../lib/wails";
+import type { SessionInfo, SessionStatus, HostInfo, DirectoryEntry } from "../lib/wails";
 
 interface Tab {
   id: string;
   sessionId: string;
   ptyId: string;
   splits: string[];
+}
+
+interface EditorFile {
+  path: string;
+  contents: string;
+  language: string;
+}
+
+interface ScopeMode {
+  active: boolean;
+  sessionId: string | null;
+  snapshot: {
+    tabs: Tab[];
+    activeTabId: string | null;
+    sidebarVisible: boolean;
+  } | null;
 }
 
 interface SessionState {
@@ -15,12 +31,14 @@ interface SessionState {
   activeTabId: string | null;
   selectedSidebarIdx: number;
   sidebarVisible: boolean;
-  // Sessions currently being started (show loading indicator)
   loadingSessionIds: Set<string>;
-  // Sessions that just finished loading (flash briefly)
   flashSessionIds: Set<string>;
-  // SSH hosts
   hosts: HostInfo[];
+  // Scope mode
+  scopeMode: ScopeMode;
+  explorerTree: Map<string, DirectoryEntry[]>;
+  openEditorFiles: EditorFile[];
+  activeEditorFile: string | null;
 
   setSessions: (sessions: SessionInfo[]) => void;
   updateStatuses: (statuses: SessionStatus[]) => void;
@@ -36,6 +54,35 @@ interface SessionState {
   setHosts: (hosts: HostInfo[]) => void;
   addHost: (host: HostInfo) => void;
   removeHost: (id: string) => void;
+  // Scope mode actions
+  enterScopeMode: (sessionId: string) => void;
+  exitScopeMode: () => void;
+  setExplorerEntries: (dirPath: string, entries: DirectoryEntry[]) => void;
+  clearExplorerTree: () => void;
+  openEditorFile: (path: string, contents: string, language: string) => void;
+  closeEditorFile: (path: string) => void;
+  setActiveEditorFile: (path: string) => void;
+  updateEditorFileContents: (path: string, contents: string) => void;
+}
+
+const extToLanguage: Record<string, string> = {
+  ".go": "go", ".ts": "typescript", ".tsx": "typescript", ".js": "javascript",
+  ".jsx": "javascript", ".py": "python", ".json": "json", ".md": "markdown",
+  ".css": "css", ".html": "html", ".yaml": "yaml", ".yml": "yaml",
+  ".toml": "toml", ".rs": "rust", ".sh": "shell", ".bash": "shell",
+  ".sql": "sql", ".graphql": "graphql", ".proto": "protobuf",
+  ".dockerfile": "dockerfile", ".xml": "xml", ".svg": "xml",
+  ".c": "c", ".h": "c", ".cpp": "cpp", ".hpp": "cpp",
+  ".java": "java", ".rb": "ruby", ".php": "php", ".swift": "swift",
+  ".kt": "kotlin", ".lua": "lua", ".r": "r", ".R": "r",
+};
+
+export function detectLanguage(filePath: string): string {
+  const name = filePath.toLowerCase();
+  if (name === "dockerfile" || name.endsWith("/dockerfile")) return "dockerfile";
+  if (name === "makefile" || name.endsWith("/makefile")) return "makefile";
+  const ext = name.includes(".") ? "." + name.split(".").pop() : "";
+  return extToLanguage[ext] ?? "plaintext";
 }
 
 let tabCounter = 0;
@@ -50,6 +97,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   loadingSessionIds: new Set(),
   flashSessionIds: new Set(),
   hosts: [],
+  scopeMode: { active: false, sessionId: null, snapshot: null },
+  explorerTree: new Map(),
+  openEditorFiles: [],
+  activeEditorFile: null,
 
   setSessions: (sessions) => set({ sessions }),
 
@@ -150,4 +201,75 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   setHosts: (hosts) => set({ hosts }),
   addHost: (host) => set((s) => ({ hosts: [...s.hosts, host] })),
   removeHost: (id) => set((s) => ({ hosts: s.hosts.filter((h) => h.id !== id) })),
+
+  // Scope mode actions
+  enterScopeMode: (sessionId) =>
+    set((state) => ({
+      scopeMode: {
+        active: true,
+        sessionId,
+        snapshot: {
+          tabs: [...state.tabs],
+          activeTabId: state.activeTabId,
+          sidebarVisible: state.sidebarVisible,
+        },
+      },
+    })),
+
+  exitScopeMode: () =>
+    set((state) => {
+      const snapshot = state.scopeMode.snapshot;
+      return {
+        scopeMode: { active: false, sessionId: null, snapshot: null },
+        explorerTree: new Map(),
+        openEditorFiles: [],
+        activeEditorFile: null,
+        ...(snapshot
+          ? {
+              activeTabId: snapshot.activeTabId,
+              sidebarVisible: snapshot.sidebarVisible,
+            }
+          : {}),
+      };
+    }),
+
+  setExplorerEntries: (dirPath, entries) =>
+    set((state) => {
+      const next = new Map(state.explorerTree);
+      next.set(dirPath, entries);
+      return { explorerTree: next };
+    }),
+
+  clearExplorerTree: () => set({ explorerTree: new Map() }),
+
+  openEditorFile: (path, contents, language) =>
+    set((state) => {
+      const existing = state.openEditorFiles.find((f) => f.path === path);
+      if (existing) return { activeEditorFile: path };
+      return {
+        openEditorFiles: [...state.openEditorFiles, { path, contents, language }],
+        activeEditorFile: path,
+      };
+    }),
+
+  closeEditorFile: (path) =>
+    set((state) => {
+      const files = state.openEditorFiles.filter((f) => f.path !== path);
+      const activeEditorFile =
+        state.activeEditorFile === path
+          ? files.length > 0
+            ? files[files.length - 1].path
+            : null
+          : state.activeEditorFile;
+      return { openEditorFiles: files, activeEditorFile };
+    }),
+
+  setActiveEditorFile: (path) => set({ activeEditorFile: path }),
+
+  updateEditorFileContents: (path, contents) =>
+    set((state) => ({
+      openEditorFiles: state.openEditorFiles.map((f) =>
+        f.path === path ? { ...f, contents } : f
+      ),
+    })),
 }));
