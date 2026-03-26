@@ -173,6 +173,16 @@ func (m *SSHProcessManager) HasUpdated(id string) (bool, bool) {
 	return sess.monitor.HasUpdated()
 }
 
+func (m *SSHProcessManager) HasPrompt(id string) bool {
+	m.mu.RLock()
+	sess, ok := m.sessions[id]
+	m.mu.RUnlock()
+	if !ok {
+		return false
+	}
+	return sess.monitor.HasPrompt()
+}
+
 func (m *SSHProcessManager) CheckTrustPrompt(id string) bool {
 	m.mu.RLock()
 	sess, ok := m.sessions[id]

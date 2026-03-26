@@ -17,6 +17,8 @@ const statusColors: Record<string, string> = {
   paused: "var(--overlay0)",
 };
 
+const promptColor = "var(--peach)";
+
 export function SessionItem({
   session,
   status,
@@ -27,10 +29,18 @@ export function SessionItem({
   onContextMenu,
 }: SessionItemProps) {
   const sshDisconnected = status?.sshConnected === false;
-  const color = sshDisconnected ? "var(--red)" : (statusColors[status?.status ?? session.status] ?? "var(--overlay0)");
+  const hasPrompt = status?.hasPrompt && status?.status === "running";
+  const color = sshDisconnected
+    ? "var(--red)"
+    : hasPrompt
+      ? promptColor
+      : (statusColors[status?.status ?? session.status] ?? "var(--overlay0)");
   const diff = status?.diffStats;
 
   let background = selected ? "var(--surface0)" : "transparent";
+  if (hasPrompt) {
+    background = "rgba(249, 226, 175, 0.12)";
+  }
   if (flash) {
     background = "var(--surface1)";
   }
@@ -51,7 +61,7 @@ export function SessionItem({
     >
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         <span style={{ color, fontSize: 10 }}>
-          {loading ? "\u23F3" : sshDisconnected ? "\u26A0" : session.status === "paused" ? "\u23F8" : "\u25CF"}
+          {loading ? "\u23F3" : sshDisconnected ? "\u26A0" : session.status === "paused" ? "\u23F8" : hasPrompt ? "\u25C9" : "\u25CF"}
         </span>
         <span
           style={{

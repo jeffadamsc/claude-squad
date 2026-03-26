@@ -94,8 +94,16 @@ export function SearchRemoteBranches(arg1, arg2, arg3) {
   return window['go']['app']['SessionAPI']['SearchRemoteBranches'](arg1, arg2, arg3);
 }
 
+export function SelectFile(arg1) {
+  return window['go']['app']['SessionAPI']['SelectFile'](arg1);
+}
+
 export function SendPrompt(arg1, arg2) {
   return window['go']['app']['SessionAPI']['SendPrompt'](arg1, arg2);
+}
+
+export function SetContext(arg1) {
+  return window['go']['app']['SessionAPI']['SetContext'](arg1);
 }
 
 export function SetHostLastPath(arg1, arg2) {

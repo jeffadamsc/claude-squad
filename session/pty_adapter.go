@@ -19,6 +19,7 @@ type ProcessManager interface {
 	Kill(id string) error
 	Resize(id string, rows, cols uint16) error
 	HasUpdated(id string) (updated bool, hasPrompt bool)
+	HasPrompt(id string) bool
 	CheckTrustPrompt(id string) bool
 	GetContent(id string) string
 	Write(id string, data []byte) error

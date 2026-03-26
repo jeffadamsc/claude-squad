@@ -268,6 +268,16 @@ func (m *Manager) HasUpdated(id string) (bool, bool) {
 	return sess.monitor.HasUpdated()
 }
 
+func (m *Manager) HasPrompt(id string) bool {
+	m.mu.RLock()
+	sess, ok := m.sessions[id]
+	m.mu.RUnlock()
+	if !ok {
+		return false
+	}
+	return sess.monitor.HasPrompt()
+}
+
 func (m *Manager) CheckTrustPrompt(id string) bool {
 	m.mu.RLock()
 	sess, ok := m.sessions[id]

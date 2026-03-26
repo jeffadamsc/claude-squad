@@ -73,6 +73,9 @@ var (
 				Bind: []interface{}{
 					api,
 				},
+				OnStartup: func(ctx context.Context) {
+					api.SetContext(ctx)
+				},
 				OnShutdown: func(ctx context.Context) {
 					api.Close()
 				},

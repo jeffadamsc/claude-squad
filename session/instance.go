@@ -492,6 +492,16 @@ func (i *Instance) HasUpdated() (updated bool, hasPrompt bool) {
 	return i.processManager.HasUpdated(i.processID)
 }
 
+// HasPrompt checks whether the terminal currently shows a prompt waiting for
+// user input. Unlike HasUpdated, this returns true even if the content hasn't
+// changed since the last poll.
+func (i *Instance) HasPrompt() bool {
+	if !i.started || i.processManager == nil || i.processID == "" {
+		return false
+	}
+	return i.processManager.HasPrompt(i.processID)
+}
+
 // CheckAndHandleTrustPrompt checks for and dismisses the trust prompt for supported programs.
 func (i *Instance) CheckAndHandleTrustPrompt() bool {
 	if !i.started || i.processManager == nil || i.processID == "" {

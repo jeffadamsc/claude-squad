@@ -1,8 +1,11 @@
 package ssh
 
 import (
+	"errors"
 	"fmt"
+	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -209,7 +212,11 @@ func buildSSHConfig(host HostConfig, secret string) (*ssh.ClientConfig, error) {
 		Timeout: dialTimeout,
 	}
 
-	// Host key verification via known_hosts
+	// Host key verification via known_hosts.
+	// We wrap the callback to accept unknown hosts. When a host IS in
+	// known_hosts but the server offers a different key type than what's
+	// stored, the library reports a mismatch. To prevent this, we set
+	// HostKeyAlgorithms to prefer the key types already in known_hosts.
 	knownHostsPath := os.ExpandEnv("$HOME/.ssh/known_hosts")
 	if _, err := os.Stat(knownHostsPath); err == nil {
 		hostKeyCallback, err := knownhosts.New(knownHostsPath)
@@ -217,10 +224,33 @@ func buildSSHConfig(host HostConfig, secret string) (*ssh.ClientConfig, error) {
 			log.ErrorLog.Printf("failed to parse known_hosts, falling back to insecure: %v", err)
 			cfg.HostKeyCallback = ssh.InsecureIgnoreHostKey()
 		} else {
-			cfg.HostKeyCallback = hostKeyCallback
+			cfg.HostKeyCallback = func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+				err := hostKeyCallback(hostname, remote, key)
+				if err == nil {
+					return nil
+				}
+				var keyErr *knownhosts.KeyError
+				if errors.As(err, &keyErr) && len(keyErr.Want) == 0 {
+					return nil
+				}
+				return err
+			}
+			// Prefer key algorithms matching known_hosts entries so the
+			// client negotiates a key type we already trust.
+			algos := hostKeyAlgorithms(knownHostsPath, host.Host, host.Port)
+			if len(algos) > 0 {
+				cfg.HostKeyAlgorithms = algos
+			}
 		}
 	} else {
 		cfg.HostKeyCallback = ssh.InsecureIgnoreHostKey()
+	}
+
+	// Expand ~ to home directory in key path
+	keyPath := host.KeyPath
+	if strings.HasPrefix(keyPath, "~/") {
+		home, _ := os.UserHomeDir()
+		keyPath = filepath.Join(home, keyPath[2:])
 	}
 
 	switch host.AuthMethod {
@@ -236,7 +266,7 @@ func buildSSHConfig(host HostConfig, secret string) (*ssh.ClientConfig, error) {
 			}),
 		}
 	case AuthMethodKey:
-		keyData, err := os.ReadFile(host.KeyPath)
+		keyData, err := os.ReadFile(keyPath)
 		if err != nil {
 			return nil, fmt.Errorf("read key file: %w", err)
 		}
@@ -246,7 +276,7 @@ func buildSSHConfig(host HostConfig, secret string) (*ssh.ClientConfig, error) {
 		}
 		cfg.Auth = []ssh.AuthMethod{ssh.PublicKeys(signer)}
 	case AuthMethodKeyPassphrase:
-		keyData, err := os.ReadFile(host.KeyPath)
+		keyData, err := os.ReadFile(keyPath)
 		if err != nil {
 			return nil, fmt.Errorf("read key file: %w", err)
 		}
@@ -260,6 +290,56 @@ func buildSSHConfig(host HostConfig, secret string) (*ssh.ClientConfig, error) {
 	}
 
 	return cfg, nil
+}
+
+// hostKeyAlgorithms reads known_hosts and returns the key algorithms stored
+// for the given host, so the SSH client can prefer those during negotiation.
+func hostKeyAlgorithms(knownHostsPath string, hostname string, port int) []string {
+	data, err := os.ReadFile(knownHostsPath)
+	if err != nil {
+		return nil
+	}
+
+	// Normalize the hostname patterns we're looking for
+	targets := map[string]bool{
+		hostname:                            true,
+		fmt.Sprintf("[%s]:%d", hostname, port): true,
+	}
+
+	// key type in known_hosts → SSH algorithm name
+	keyTypeToAlgo := map[string]string{
+		"ssh-ed25519":          "ssh-ed25519",
+		"ssh-rsa":              "ssh-rsa",
+		"ecdsa-sha2-nistp256":  "ecdsa-sha2-nistp256",
+		"ecdsa-sha2-nistp384":  "ecdsa-sha2-nistp384",
+		"ecdsa-sha2-nistp521":  "ecdsa-sha2-nistp521",
+		"sk-ssh-ed25519@openssh.com":         "sk-ssh-ed25519@openssh.com",
+		"sk-ecdsa-sha2-nistp256@openssh.com": "sk-ecdsa-sha2-nistp256@openssh.com",
+	}
+
+	var algos []string
+	seen := map[string]bool{}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "@") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		hosts, keyType := fields[0], fields[1]
+		for _, h := range strings.Split(hosts, ",") {
+			if targets[h] {
+				if algo, ok := keyTypeToAlgo[keyType]; ok && !seen[algo] {
+					algos = append(algos, algo)
+					seen[algo] = true
+				}
+				break
+			}
+		}
+	}
+	return algos
 }
 
 // ShellEscape quotes a string for safe use in a shell command.

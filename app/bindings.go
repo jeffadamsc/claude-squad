@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
@@ -17,6 +18,8 @@ import (
 	"claude-squad/session"
 	"claude-squad/session/git"
 	sshPkg "claude-squad/ssh"
+
+	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type SessionAPIOptions struct {
@@ -60,6 +63,7 @@ type DiffStats struct {
 
 type SessionAPI struct {
 	mu            sync.RWMutex
+	ctx           context.Context // Wails app context for native dialogs
 	instances     map[string]*session.Instance
 	storage       *session.Storage
 	ptyManager    *ptyPkg.Manager
@@ -134,6 +138,31 @@ func NewSessionAPI(opts SessionAPIOptions) (*SessionAPI, error) {
 	}
 
 	return api, nil
+}
+
+// SetContext stores the Wails application context needed for native dialogs.
+func (api *SessionAPI) SetContext(ctx context.Context) {
+	api.ctx = ctx
+}
+
+// SelectFile opens a native file dialog starting at the given directory.
+func (api *SessionAPI) SelectFile(startDir string) (string, error) {
+	if api.ctx == nil {
+		return "", fmt.Errorf("application context not set")
+	}
+	// Expand ~ to home directory
+	if strings.HasPrefix(startDir, "~/") {
+		home, _ := os.UserHomeDir()
+		startDir = filepath.Join(home, startDir[2:])
+	}
+	path, err := wailsRuntime.OpenFileDialog(api.ctx, wailsRuntime.OpenDialogOptions{
+		DefaultDirectory: startDir,
+		Title:            "Select SSH Key File",
+	})
+	if err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 func statusString(s session.Status) string {
@@ -412,7 +441,7 @@ func (api *SessionAPI) PollAllStatuses() ([]SessionStatus, error) {
 
 	result := make([]SessionStatus, 0, len(api.instances))
 	for _, inst := range api.instances {
-		_, hasPrompt := inst.HasUpdated()
+		hasPrompt := inst.HasPrompt()
 
 		var ds DiffStats
 		if stats := inst.GetDiffStats(); stats != nil {

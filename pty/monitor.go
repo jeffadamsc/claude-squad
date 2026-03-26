@@ -19,6 +19,12 @@ var promptPatterns = []string{
 	"press enter",
 }
 
+// idlePatterns detect when an AI agent is done working and waiting for the
+// next user command (as opposed to a yes/no confirmation prompt).
+var idlePatterns = []string{
+	"\u276f", // ❯ — Claude Code's input prompt
+}
+
 var trustPatterns = []string{
 	"Do you trust the files in this folder",
 	"Trust this project",
@@ -88,6 +94,23 @@ func (m *Monitor) HasUpdated() (updated bool, hasPrompt bool) {
 	}
 	m.lastHash = hash
 
+	return true, m.checkPromptLocked()
+}
+
+// HasPrompt checks whether the terminal buffer currently ends with a prompt,
+// regardless of whether the content has changed since the last poll.
+func (m *Monitor) HasPrompt() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.used == 0 {
+		return false
+	}
+	return m.checkPromptLocked()
+}
+
+// checkPromptLocked scans the tail of the buffer for prompt or idle patterns.
+// Must be called with m.mu held.
+func (m *Monitor) checkPromptLocked() bool {
 	content := m.contentLocked()
 	tail := content
 	if len(tail) > 500 {
@@ -96,11 +119,16 @@ func (m *Monitor) HasUpdated() (updated bool, hasPrompt bool) {
 
 	for _, p := range promptPatterns {
 		if strings.Contains(tail, p) {
-			return true, true
+			return true
+		}
+	}
+	for _, p := range idlePatterns {
+		if strings.Contains(tail, p) {
+			return true
 		}
 	}
 
-	return true, false
+	return false
 }
 
 func (m *Monitor) CheckTrustPrompt() bool {
