@@ -63,10 +63,11 @@ export default function App() {
     async (opts: CreateOptions) => {
       try {
         const session = await api().CreateSession(opts);
-        addSession(session);
         setShowNewSession(false);
-        // Start the session in the background — poller picks up status changes
+        // Mark loading BEFORE adding to the session list so the first render
+        // already shows the hourglass instead of a brief yellow "ready" LED.
         markLoading(session.id);
+        addSession(session);
         api().StartSession(session.id).catch((err) => {
           console.error("Failed to start session:", err);
         });

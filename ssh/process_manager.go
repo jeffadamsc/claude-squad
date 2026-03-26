@@ -25,6 +25,15 @@ func NewSSHProcessManager(client *Client) *SSHProcessManager {
 	}
 }
 
+// UpdateClient replaces the underlying SSH client after a reconnect.
+// Existing sessions retain their snapshot buffers so WebSocket clients
+// can still retrieve the last terminal state via GetSnapshot.
+func (m *SSHProcessManager) UpdateClient(client *Client) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.client = client
+}
+
 func (m *SSHProcessManager) Spawn(program string, args []string, opts pty.SpawnOptions) (string, error) {
 	sshClient := m.client.SSHClient()
 	if sshClient == nil {

@@ -12,10 +12,12 @@ interface TerminalPaneProps {
 
 export function TerminalPane({ sessionId, wsPort, focused, instanceId }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  useTerminal(containerRef, { sessionId, wsPort });
+  const { disconnected } = useTerminal(containerRef, { sessionId, wsPort });
 
   const status = useSessionStore((s) => instanceId ? s.statuses.get(instanceId) : undefined);
   const sshDisconnected = status?.sshConnected === false;
+
+  const showOverlay = sshDisconnected || disconnected;
 
   return (
     <div style={{ position: "relative", flex: 1, height: "100%" }}>
@@ -29,7 +31,7 @@ export function TerminalPane({ sessionId, wsPort, focused, instanceId }: Termina
           overflow: "hidden",
         }}
       />
-      {sshDisconnected && (
+      {showOverlay && (
         <div
           style={{
             position: "absolute",

@@ -154,12 +154,16 @@ func (hm *HostManager) reconnectLoop(hostID string) {
 			continue
 		}
 
-		// Reconnected successfully
+		// Reconnected successfully — update the client but keep the existing
+		// ProcessManager so that session references (and therefore WebSocket
+		// subscribers) remain valid. The old SSH sessions are dead, but the
+		// ProcessManager still holds their snapshot buffers so reconnecting
+		// WebSocket clients can retrieve the last terminal state.
 		hm.mu.Lock()
 		mc, ok := hm.clients[hostID]
 		if ok {
 			mc.client = newClient
-			mc.pm = NewSSHProcessManager(newClient)
+			mc.pm.UpdateClient(newClient)
 			newClient.OnDisconnect(func() {
 				hm.handleDisconnect(hostID)
 			})
