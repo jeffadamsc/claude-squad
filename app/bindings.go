@@ -357,7 +357,7 @@ func (api *SessionAPI) KillSession(id string) error {
 	}
 
 	if err := inst.Kill(); err != nil {
-		return fmt.Errorf("kill session: %w", err)
+		log.ErrorLog.Printf("kill session %q cleanup error (session will still be removed): %v", id, err)
 	}
 
 	delete(api.instances, id)

@@ -40,6 +40,38 @@ type GitWorktree struct {
 	executor CommandExecutor
 }
 
+// branchExistsWithExecutor checks if a branch exists locally or on the remote.
+func branchExistsWithExecutor(repoPath string, branchName string, exec CommandExecutor) bool {
+	if exec == nil {
+		exec = defaultExecutor
+	}
+	// Check local branch
+	if _, err := exec.Run(repoPath, "git", "show-ref", "--verify", fmt.Sprintf("refs/heads/%s", branchName)); err == nil {
+		return true
+	}
+	// Check remote branch
+	if _, err := exec.Run(repoPath, "git", "show-ref", "--verify", fmt.Sprintf("refs/remotes/origin/%s", branchName)); err == nil {
+		return true
+	}
+	return false
+}
+
+// deduplicateBranchName appends -1, -2, etc. to the branch name if it already exists.
+func deduplicateBranchName(repoPath string, branchName string, exec CommandExecutor) string {
+	if !branchExistsWithExecutor(repoPath, branchName, exec) {
+		return branchName
+	}
+	for i := 1; i <= 100; i++ {
+		candidate := fmt.Sprintf("%s-%d", branchName, i)
+		if !branchExistsWithExecutor(repoPath, candidate, exec) {
+			log.InfoLog.Printf("branch %s already exists, using %s instead", branchName, candidate)
+			return candidate
+		}
+	}
+	// Extremely unlikely — fall through with the original name and let git error
+	return branchName
+}
+
 func NewGitWorktreeFromStorage(repoPath string, worktreePath string, sessionName string, branchName string, baseCommitSHA string, isExistingBranch bool) *GitWorktree {
 	return &GitWorktree{
 		repoPath:         repoPath,
@@ -124,6 +156,9 @@ func NewGitWorktreeWithExecutor(repoPath string, sessionName string, exec Comman
 	// (e.g., backslashes from Windows domain usernames like DOMAIN\user)
 	branchName = sanitizeBranchName(branchName)
 
+	// Deduplicate: if the branch already exists, append -1, -2, etc.
+	branchName = deduplicateBranchName(repoPath, branchName, exec)
+
 	repoPath, worktreePath, err := resolveWorktreePathsWithExecutor(repoPath, branchName, exec)
 	if err != nil {
 		return nil, "", err
@@ -178,6 +213,9 @@ func NewGitWorktreeFromRefWithExecutor(repoPath string, baseRef string, sessionN
 	cfg := config.LoadConfig()
 	branchName = fmt.Sprintf("%s%s", cfg.BranchPrefix, sessionName)
 	branchName = sanitizeBranchName(branchName)
+
+	// Deduplicate: if the branch already exists, append -1, -2, etc.
+	branchName = deduplicateBranchName(repoPath, branchName, exec)
 
 	repoPath, worktreePath, err := resolveWorktreePathsWithExecutor(repoPath, branchName, exec)
 	if err != nil {

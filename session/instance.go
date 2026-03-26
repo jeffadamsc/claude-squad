@@ -5,6 +5,7 @@ import (
 	"claude-squad/pty"
 	"claude-squad/session/git"
 	"crypto/rand"
+	"os/exec"
 	"path/filepath"
 
 	"fmt"
@@ -273,6 +274,28 @@ func (i *Instance) spawnProcess(dir string, resume bool) error {
 	}
 	program := fields[0]
 	args := fields[1:]
+
+	// If the program is a bare name (no path separator), try to resolve it.
+	// GUI apps on macOS have a minimal PATH, so exec.LookPath may fail for
+	// programs installed in user-local directories like ~/.local/bin.
+	if !strings.Contains(program, string(os.PathSeparator)) {
+		if _, err := exec.LookPath(program); err != nil {
+			if homeDir, hdErr := os.UserHomeDir(); hdErr == nil {
+				candidates := []string{
+					filepath.Join(homeDir, ".local", "bin", program),
+					filepath.Join("/usr", "local", "bin", program),
+					filepath.Join(homeDir, ".npm-global", "bin", program),
+				}
+				for _, c := range candidates {
+					if _, statErr := os.Stat(c); statErr == nil {
+						log.InfoLog.Printf("resolved %q to %s", program, c)
+						program = c
+						break
+					}
+				}
+			}
+		}
+	}
 
 	isClaude := strings.HasSuffix(program, ProgramClaude)
 

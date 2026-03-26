@@ -152,6 +152,19 @@ func GetClaudeCommand() (string, error) {
 		return claudePath, nil
 	}
 
+	// Check common installation paths (GUI apps have a minimal PATH)
+	homeDir, _ := os.UserHomeDir()
+	commonPaths := []string{
+		filepath.Join(homeDir, ".local", "bin", "claude"),
+		"/usr/local/bin/claude",
+		filepath.Join(homeDir, ".npm-global", "bin", "claude"),
+	}
+	for _, p := range commonPaths {
+		if _, err := os.Stat(p); err == nil {
+			return p, nil
+		}
+	}
+
 	return "", fmt.Errorf("claude command not found in aliases or PATH")
 }
 
