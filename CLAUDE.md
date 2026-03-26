@@ -2,10 +2,39 @@
 
 ## Building & Installing
 
-The `cs` binary on PATH is at `~/.local/bin/cs`. Use `go build` to target it directly:
+This is a **Wails** application. Use `wails build` (not plain `go build`) to compile
+the frontend, embed assets, and produce a macOS `.app` bundle:
 
 ```sh
-CGO_ENABLED=1 go build -o ~/.local/bin/cs .
+wails build
 ```
 
-Do NOT use `go install` — it writes to `~/go/bin/cs` which is not on PATH.
+The output is `build/bin/claude-squad.app`. Install it and create a CLI symlink:
+
+```sh
+cp -R build/bin/claude-squad.app /Applications/
+ln -sf /Applications/claude-squad.app/Contents/MacOS/cs ~/.local/bin/cs
+```
+
+The `cs` binary is then available on PATH at `~/.local/bin/cs`.
+
+### DMG Installer
+
+To create a `.dmg` for distribution:
+
+```sh
+./scripts/build-dmg.sh
+```
+
+Output: `build/bin/Claude Squad.dmg`
+
+### Development
+
+For live-reload during development:
+
+```sh
+wails dev
+```
+
+Do NOT use `go build` or `go install` directly — they skip frontend compilation
+and macOS app bundling.

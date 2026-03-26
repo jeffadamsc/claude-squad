@@ -13,19 +13,39 @@ A native desktop app that manages multiple [Claude Code](https://github.com/anth
 
 ### Installation
 
-Build from source:
+**macOS DMG** (recommended): Download the `.dmg` from [Releases](https://github.com/jeffadamsc/claude-squad-ide/releases), open it, and drag the app to Applications. Then create a CLI symlink:
+
+```bash
+ln -sf /Applications/claude-squad.app/Contents/MacOS/cs ~/.local/bin/cs
+```
+
+**Build from source:**
 
 ```bash
 git clone https://github.com/jeffadamsc/claude-squad-ide.git
 cd claude-squad-ide
-go build -o cs .
+wails build
 ```
 
-Place the `cs` binary somewhere on your `$PATH` (e.g. `~/.local/bin`).
+Install the built app:
+
+```bash
+cp -R build/bin/claude-squad.app /Applications/
+ln -sf /Applications/claude-squad.app/Contents/MacOS/cs ~/.local/bin/cs
+```
+
+**Build a DMG installer:**
+
+```bash
+./scripts/build-dmg.sh
+```
+
+Output: `build/bin/Claude Squad.dmg`
 
 ### Prerequisites
 
-- [Go](https://go.dev/dl/) 1.21+ (to build)
+- [Go](https://go.dev/dl/) 1.21+ (to build from source)
+- [Wails](https://wails.io/docs/gettingstarted/installation) v2 (to build from source)
 - [tmux](https://github.com/tmux/tmux/wiki/Installing) (used under the hood for agent terminal sessions)
 
 ### Usage
@@ -48,7 +68,7 @@ Flags:
   -p, --program string   Program to run in new instances (e.g. 'aider --model ollama_chat/gemma3:1b')
 ```
 
-Launch the app from inside a git repository:
+Launch the app from the command line, from Spotlight, or from the Applications folder:
 
 ```bash
 cs
@@ -110,7 +130,7 @@ If no profiles are defined, Claude Squad uses `default_program` directly as the 
 
 1. **tmux** to create isolated terminal sessions for each agent
 2. **git worktrees** to isolate codebases so each session works on its own branch
-3. A native GUI (Fyne) with embedded terminal panes for viewing and interacting with sessions
+3. A native GUI (Wails + React) with embedded terminal panes for viewing and interacting with sessions
 
 ### License
 

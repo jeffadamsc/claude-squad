@@ -6,6 +6,7 @@ import (
 	ptyPkg "claude-squad/pty"
 	"claude-squad/session"
 	sshPkg "claude-squad/ssh"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -78,6 +79,13 @@ func newTestAPI(t *testing.T) *SessionAPI {
 	t.Helper()
 
 	initLogOnce.Do(func() { logPkg.Initialize(false) })
+
+	// Override HOME so SaveState writes to a temp dir instead of the real
+	// ~/.claude-squad/state.json. Without this, test cleanup overwrites the
+	// user's real session data.
+	origHome := os.Getenv("HOME")
+	t.Setenv("HOME", t.TempDir())
+	t.Cleanup(func() { os.Setenv("HOME", origHome) })
 
 	mgr := ptyPkg.NewManager()
 	ws := ptyPkg.NewWebSocketServer(mgr, mgr)
