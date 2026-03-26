@@ -116,6 +116,24 @@ export namespace app {
 	        this.branches = source["branches"];
 	    }
 	}
+	export class DirectoryEntry {
+	    name: string;
+	    path: string;
+	    isDir: boolean;
+	    size: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DirectoryEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.path = source["path"];
+	        this.isDir = source["isDir"];
+	        this.size = source["size"];
+	    }
+	}
 	export class HostInfo {
 	    id: string;
 	    name: string;

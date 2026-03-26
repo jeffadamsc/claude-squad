@@ -28,6 +28,8 @@ export function GetWebSocketPort():Promise<number>;
 
 export function KillSession(arg1:string):Promise<void>;
 
+export function ListDirectory(arg1:string,arg2:string):Promise<Array<app.DirectoryEntry>>;
+
 export function ListRemoteDir(arg1:string,arg2:string):Promise<Array<app.RemoteDirEntry>>;
 
 export function LoadSessions():Promise<Array<app.SessionInfo>>;
@@ -37,6 +39,8 @@ export function OpenSession(arg1:string):Promise<string>;
 export function PauseSession(arg1:string):Promise<void>;
 
 export function PollAllStatuses():Promise<Array<app.SessionStatus>>;
+
+export function ReadFile(arg1:string,arg2:string):Promise<string>;
 
 export function ResumeSession(arg1:string):Promise<void>;
 
@@ -53,3 +57,5 @@ export function StartSession(arg1:string):Promise<void>;
 export function TestHost(arg1:app.CreateHostOptions,arg2:string):Promise<app.TestHostResult>;
 
 export function UpdateHost(arg1:app.CreateHostOptions,arg2:string):Promise<void>;
+
+export function WriteFile(arg1:string,arg2:string,arg3:string):Promise<void>;

@@ -54,6 +54,10 @@ export function KillSession(arg1) {
   return window['go']['app']['SessionAPI']['KillSession'](arg1);
 }
 
+export function ListDirectory(arg1, arg2) {
+  return window['go']['app']['SessionAPI']['ListDirectory'](arg1, arg2);
+}
+
 export function ListRemoteDir(arg1, arg2) {
   return window['go']['app']['SessionAPI']['ListRemoteDir'](arg1, arg2);
 }
@@ -72,6 +76,10 @@ export function PauseSession(arg1) {
 
 export function PollAllStatuses() {
   return window['go']['app']['SessionAPI']['PollAllStatuses']();
+}
+
+export function ReadFile(arg1, arg2) {
+  return window['go']['app']['SessionAPI']['ReadFile'](arg1, arg2);
 }
 
 export function ResumeSession(arg1) {
@@ -104,4 +112,8 @@ export function TestHost(arg1, arg2) {
 
 export function UpdateHost(arg1, arg2) {
   return window['go']['app']['SessionAPI']['UpdateHost'](arg1, arg2);
+}
+
+export function WriteFile(arg1, arg2, arg3) {
+  return window['go']['app']['SessionAPI']['WriteFile'](arg1, arg2, arg3);
 }
