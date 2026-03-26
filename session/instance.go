@@ -275,10 +275,11 @@ func (i *Instance) spawnProcess(dir string, resume bool) error {
 	program := fields[0]
 	args := fields[1:]
 
-	// If the program is a bare name (no path separator), try to resolve it.
-	// GUI apps on macOS have a minimal PATH, so exec.LookPath may fail for
-	// programs installed in user-local directories like ~/.local/bin.
-	if !strings.Contains(program, string(os.PathSeparator)) {
+	// If the program is a bare name (no path separator), try to resolve it
+	// locally. Skip this for remote sessions — the SSH process manager wraps
+	// commands in `bash -lc` which sources the remote user's profile, so the
+	// remote PATH will resolve the program name correctly.
+	if i.HostID == "" && !strings.Contains(program, string(os.PathSeparator)) {
 		if _, err := exec.LookPath(program); err != nil {
 			if homeDir, hdErr := os.UserHomeDir(); hdErr == nil {
 				candidates := []string{
