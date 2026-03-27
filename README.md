@@ -16,9 +16,14 @@ When you're working across multiple repos or features, running several AI agents
 
 **Isolated git worktrees per session.** Every new session gets its own git worktree branched from the ref you choose. Agents work in parallel on the same repo without merge conflicts. This extends to submodules too — if your repo has git submodules, each session's worktree initializes them independently so cross-repo features stay isolated.
 
-**Session scope mode.** Enter a session's scope to browse and edit files in that specific worktree. See exactly what the agent changed, make manual edits, then switch back to the overview.
+**Session scope mode.** Enter a session's scope to browse and edit files in that specific worktree with a full-featured code editor. Includes:
+- **Quick Open** (`Cmd+P`) with fuzzy file search across the worktree
+- **Go-to-definition** (`Cmd+Click`) powered by universal-ctags with cross-file navigation
+- **Cmd+hover** blue underline links for symbol navigation
+- **Find and replace** (`Cmd+F`) within files
+- **Diff viewer** showing all changes since the branch diverged from its base, across root repo and submodules. Uses Monaco's inline diff editor with auto-refresh, collapsible file sections, and clickable links to open files.
 
-**Remote sessions.** Spin up agent sessions on another machine over SSH. Useful when you need more compute or want to keep heavy workloads off your laptop.
+**Remote sessions.** Spin up agent sessions on another machine over SSH with automatic reconnection. Useful when you need more compute or want to keep heavy workloads off your laptop. Features auto-reconnect with exponential backoff and a connection status overlay.
 
 **Hands-off background work.** Auto-accept mode lets agents run unattended. Check back when they're done.
 
@@ -58,6 +63,8 @@ Output: `build/bin/Claude Squad.dmg`
 - [Go](https://go.dev/dl/) 1.21+ (to build from source)
 - [Wails](https://wails.io/docs/gettingstarted/installation) v2 (to build from source)
 - [tmux](https://github.com/tmux/tmux/wiki/Installing) (used under the hood for agent terminal sessions)
+
+[universal-ctags](https://github.com/universal-ctags/ctags) is bundled inside the `.app` for go-to-definition support — no separate install needed.
 
 ### Usage
 
@@ -109,7 +116,17 @@ All shortcuts use **Cmd+Shift** (macOS) or **Ctrl+Shift** (Linux/Windows) as the
 | `P` | Push changes |
 | `R` | Pause / resume session |
 | `B` | Toggle sidebar visibility |
+| `S` | Enter scope mode for selected session |
 | `Q` | Quit |
+
+**In Scope Mode:**
+
+| Shortcut | Action |
+|----------|--------|
+| `Cmd+P` | Quick Open (fuzzy file search) |
+| `Cmd+F` | Find / replace in current file |
+| `Cmd+Click` | Go to definition |
+| `Cmd+Shift+S` | Exit scope mode |
 
 ### Configuration
 
