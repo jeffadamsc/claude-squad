@@ -40,6 +40,7 @@ const mockSessionAPI = {
   IndexSession: vi.fn(),
   StopIndexer: vi.fn(),
   LookupSymbol: vi.fn().mockResolvedValue([]),
+  GetAllSymbols: vi.fn().mockResolvedValue(null),
 };
 
 Object.defineProperty(window, "go", {

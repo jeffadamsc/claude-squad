@@ -1,10 +1,15 @@
 import { useRef, useEffect, useCallback } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
+import type * as Monaco from "monaco-editor";
 import { useSessionStore, detectLanguage } from "../../store/sessionStore";
 import { EditorTabBar } from "./EditorTabBar";
 import { catppuccinMocha } from "../../lib/monacoTheme";
 import { api } from "../../lib/wails";
-import { registerDefinitionProvider } from "../../lib/definitionProvider";
+import {
+  registerDefinitionProvider,
+  registerDefinitionLink,
+  getSymbolCache,
+} from "../../lib/definitionProvider";
 
 interface EditorPaneProps {
   sessionId: string;
@@ -21,6 +26,8 @@ export function EditorPane({ sessionId }: EditorPaneProps) {
     null
   );
   const definitionProviderRef = useRef<{ dispose: () => void } | null>(null);
+  const editorOpenerRef = useRef<{ dispose: () => void } | null>(null);
+  const definitionLinkRef = useRef<{ dispose: () => void } | null>(null);
 
   const activeFile = openEditorFiles.find(
     (f) => f.path === activeEditorFile
@@ -31,37 +38,97 @@ export function EditorPane({ sessionId }: EditorPaneProps) {
     monaco.editor.setTheme("catppuccin-mocha");
 
     // Register definition provider for go-to-definition
-    if (definitionProviderRef.current) {
-      definitionProviderRef.current.dispose();
-    }
-    definitionProviderRef.current = registerDefinitionProvider(
-      monaco,
-      sessionId
-    );
-
-    // When Monaco navigates to a definition in another file, open it in tabs
-    editor.onDidChangeModel(() => {
-      const model = editor.getModel();
-      if (model) {
-        const filePath = model.uri.path.startsWith("/")
-          ? model.uri.path.slice(1)
-          : model.uri.path;
-        const store = useSessionStore.getState();
-        const existing = store.openEditorFiles.find(
-          (f) => f.path === filePath
-        );
-        if (existing) {
-          store.setActiveEditorFile(filePath);
-        } else {
-          // File opened via go-to-definition — add to editor tabs
-          store.openEditorFile(
-            filePath,
-            model.getValue(),
-            detectLanguage(filePath)
-          );
-        }
+    try {
+      if (definitionProviderRef.current) {
+        definitionProviderRef.current.dispose();
       }
-    });
+      definitionProviderRef.current = registerDefinitionProvider(
+        monaco,
+        sessionId
+      );
+    } catch (err) {
+      console.error("Failed to register definition provider:", err);
+    }
+
+    // Register custom editor opener so cross-file go-to-definition
+    // opens files in our tab system instead of Monaco trying to switch models
+    try {
+      if (editorOpenerRef.current) {
+        editorOpenerRef.current.dispose();
+      }
+      editorOpenerRef.current = monaco.editor.registerEditorOpener({
+        openCodeEditor(
+          _source: Monaco.editor.ICodeEditor,
+          resource: Monaco.Uri,
+          selectionOrPosition?: Monaco.IRange | Monaco.IPosition
+        ): boolean {
+          const filePath = resource.path.startsWith("/")
+            ? resource.path.slice(1)
+            : resource.path;
+          const store = useSessionStore.getState();
+
+          // Determine the target line/column
+          let line = 1;
+          let column = 1;
+          if (selectionOrPosition) {
+            if ("lineNumber" in selectionOrPosition) {
+              line = selectionOrPosition.lineNumber;
+              column = selectionOrPosition.column;
+            } else if ("startLineNumber" in selectionOrPosition) {
+              line = selectionOrPosition.startLineNumber;
+              column = selectionOrPosition.startColumn;
+            }
+          }
+
+          // Check if file is already open in a tab
+          const existing = store.openEditorFiles.find(
+            (f) => f.path === filePath
+          );
+          if (existing) {
+            store.setActiveEditorFile(filePath);
+            store.setPendingReveal({ line, column });
+          } else {
+            // Read and open the file in a new tab
+            api()
+              .ReadFile(sessionId, filePath)
+              .then((contents) => {
+                const s = useSessionStore.getState();
+                s.openEditorFile(filePath, contents, detectLanguage(filePath));
+                s.setPendingReveal({ line, column });
+              })
+              .catch(console.error);
+          }
+          return true; // we handled it
+        },
+      });
+    } catch (err) {
+      console.error("Failed to register editor opener:", err);
+    }
+
+    // Register manual Cmd+hover blue underline for definition links
+    try {
+      if (definitionLinkRef.current) {
+        definitionLinkRef.current.dispose();
+      }
+      definitionLinkRef.current = registerDefinitionLink(
+        monaco,
+        editor,
+        getSymbolCache
+      );
+    } catch (err) {
+      console.error("Failed to register definition link:", err);
+    }
+
+    // Apply pending reveal (scroll to line) if there is one
+    const reveal = useSessionStore.getState().pendingReveal;
+    if (reveal) {
+      editor.revealLineInCenter(reveal.line);
+      editor.setPosition({ lineNumber: reveal.line, column: reveal.column });
+      useSessionStore.getState().setPendingReveal(null);
+    }
+
+    // Auto-focus the editor so Cmd+hover and keyboard shortcuts work immediately
+    editor.focus();
   };
 
   const flushSave = useCallback(() => {
@@ -101,6 +168,14 @@ export function EditorPane({ sessionId }: EditorPaneProps) {
       if (definitionProviderRef.current) {
         definitionProviderRef.current.dispose();
         definitionProviderRef.current = null;
+      }
+      if (editorOpenerRef.current) {
+        editorOpenerRef.current.dispose();
+        editorOpenerRef.current = null;
+      }
+      if (definitionLinkRef.current) {
+        definitionLinkRef.current.dispose();
+        definitionLinkRef.current = null;
       }
     };
   }, [sessionId]);

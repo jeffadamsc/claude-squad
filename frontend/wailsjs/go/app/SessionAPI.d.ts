@@ -15,6 +15,8 @@ export function DeleteHost(arg1:string):Promise<void>;
 
 export function DeleteSession(arg1:string):Promise<void>;
 
+export function GetAllSymbols(arg1:string):Promise<Record<string, Array<app.Definition>>>;
+
 export function GetConfig():Promise<app.AppConfig>;
 
 export function GetDirInfo(arg1:string):Promise<app.DirInfo>;

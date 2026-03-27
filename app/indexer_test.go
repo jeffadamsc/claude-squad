@@ -127,6 +127,9 @@ func TestSessionIndexer_StartStop(t *testing.T) {
 	idx.Start()
 	defer idx.Stop()
 
+	// Start() is async — wait for the initial build to complete
+	time.Sleep(500 * time.Millisecond)
+
 	files := idx.Files()
 	assert.Contains(t, files, "main.go")
 }
@@ -140,6 +143,7 @@ func TestSessionIndexer_Refresh(t *testing.T) {
 	idx := NewSessionIndexer(dir)
 	idx.Start()
 	defer idx.Stop()
+	time.Sleep(500 * time.Millisecond)
 
 	// Add a new file and commit
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "helper.go"), []byte("package main\nfunc helper() {}"), 0644))

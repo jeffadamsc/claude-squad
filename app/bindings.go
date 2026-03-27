@@ -1012,16 +1012,19 @@ func (api *SessionAPI) ListFiles(sessionID string) ([]string, error) {
 	api.mu.RLock()
 	defer api.mu.RUnlock()
 
-	// Use indexer cache if available
+	// Use indexer cache if available and non-empty
 	if idx, ok := api.indexers[sessionID]; ok {
 		files := idx.Files()
-		if files != nil {
+		if len(files) > 0 {
+			log.InfoLog.Printf("ListFiles(%s): returning %d files from indexer cache", sessionID, len(files))
 			return files, nil
 		}
+		log.InfoLog.Printf("ListFiles(%s): indexer cache empty, falling through", sessionID)
 	}
 
 	inst, ok := api.instances[sessionID]
 	if !ok {
+		log.ErrorLog.Printf("ListFiles(%s): session not found in instances", sessionID)
 		return nil, fmt.Errorf("session not found: %s", sessionID)
 	}
 
@@ -1033,7 +1036,14 @@ func (api *SessionAPI) ListFiles(sessionID string) ([]string, error) {
 	if worktree == "" {
 		worktree = inst.Path
 	}
-	return listFilesInWorktree(worktree)
+	log.InfoLog.Printf("ListFiles(%s): running git ls-files in %s", sessionID, worktree)
+	files, err := listFilesInWorktree(worktree)
+	if err != nil {
+		log.ErrorLog.Printf("ListFiles(%s): git ls-files error: %v", sessionID, err)
+		return nil, err
+	}
+	log.InfoLog.Printf("ListFiles(%s): git ls-files returned %d files", sessionID, len(files))
+	return files, err
 }
 
 // listFilesRemote runs git ls-files on a remote host via SSH.
@@ -1068,11 +1078,13 @@ func (api *SessionAPI) IndexSession(sessionID string) error {
 
 	inst, ok := api.instances[sessionID]
 	if !ok {
+		log.ErrorLog.Printf("IndexSession(%s): session not found", sessionID)
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
 
 	// Remote sessions: not yet supported for indexing
 	if inst.HostID != "" {
+		log.InfoLog.Printf("IndexSession(%s): remote session, skipping", sessionID)
 		return nil
 	}
 
@@ -1080,6 +1092,7 @@ func (api *SessionAPI) IndexSession(sessionID string) error {
 	if worktree == "" {
 		worktree = inst.Path
 	}
+	log.InfoLog.Printf("IndexSession(%s): starting indexer for worktree=%s", sessionID, worktree)
 
 	idx := NewSessionIndexer(worktree)
 	idx.Start()
@@ -1104,9 +1117,25 @@ func (api *SessionAPI) LookupSymbol(sessionID string, symbol string) ([]Definiti
 
 	idx, ok := api.indexers[sessionID]
 	if !ok {
+		log.InfoLog.Printf("LookupSymbol(%s, %q): no indexer", sessionID, symbol)
 		return nil, nil
 	}
-	return idx.Lookup(symbol), nil
+	defs := idx.Lookup(symbol)
+	log.InfoLog.Printf("LookupSymbol(%s, %q): found %d definitions", sessionID, symbol, len(defs))
+	return defs, nil
+}
+
+// GetAllSymbols returns the entire symbol table for a session.
+// Used by the frontend to cache symbols locally for instant definition lookups.
+func (api *SessionAPI) GetAllSymbols(sessionID string) (map[string][]Definition, error) {
+	api.mu.RLock()
+	defer api.mu.RUnlock()
+
+	idx, ok := api.indexers[sessionID]
+	if !ok {
+		return nil, nil
+	}
+	return idx.AllSymbols(), nil
 }
 
 // ListRemoteDir lists directories in a path on a remote host.

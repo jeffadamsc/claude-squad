@@ -26,6 +26,10 @@ export function DeleteSession(arg1) {
   return window['go']['app']['SessionAPI']['DeleteSession'](arg1);
 }
 
+export function GetAllSymbols(arg1) {
+  return window['go']['app']['SessionAPI']['GetAllSymbols'](arg1);
+}
+
 export function GetConfig() {
   return window['go']['app']['SessionAPI']['GetConfig']();
 }

@@ -30,3 +30,10 @@ html, body, #root {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 13px;
 }
+
+/* Cmd+hover definition link underline in Monaco editor */
+.definition-link {
+  text-decoration: underline;
+  color: var(--blue) !important;
+  cursor: pointer;
+}

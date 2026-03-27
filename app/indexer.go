@@ -3,6 +3,7 @@ package app
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"claude-squad/log"
 )
 
 // Definition represents a symbol definition from ctags.
@@ -36,11 +39,22 @@ type ctagsEntry struct {
 
 // listFilesInWorktree returns all git-tracked files in the given worktree directory.
 func listFilesInWorktree(worktree string) ([]string, error) {
-	cmd := exec.Command("git", "ls-files")
+	return listFilesInWorktreeCtx(context.Background(), worktree)
+}
+
+func listFilesInWorktreeCtx(ctx context.Context, worktree string) ([]string, error) {
+	// Use --recurse-submodules to include files from git submodules
+	cmd := exec.CommandContext(ctx, "git", "ls-files", "--recurse-submodules")
 	cmd.Dir = worktree
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("git ls-files: %w", err)
+		// Fall back to plain ls-files if --recurse-submodules isn't supported
+		cmd = exec.CommandContext(ctx, "git", "ls-files")
+		cmd.Dir = worktree
+		out, err = cmd.Output()
+		if err != nil {
+			return nil, fmt.Errorf("git ls-files: %w", err)
+		}
 	}
 	raw := strings.TrimSpace(string(out))
 	if raw == "" {
@@ -113,18 +127,36 @@ func findUniversalCtags() string {
 // runCtags runs universal-ctags over a directory and returns the symbol table.
 // Returns an empty map (not an error) if universal-ctags is not installed.
 func runCtags(dir string) (map[string][]Definition, error) {
+	return runCtagsCtx(context.Background(), dir, nil)
+}
+
+// runCtagsCtx runs ctags with context cancellation support.
+// If files is non-nil, only those files are indexed (via -L -) instead of recursive scan.
+func runCtagsCtx(ctx context.Context, dir string, files []string) (map[string][]Definition, error) {
 	ctagsPath := findUniversalCtags()
 	if ctagsPath == "" {
 		return make(map[string][]Definition), nil
 	}
 
-	cmd := exec.Command(ctagsPath,
+	args := []string{
 		"--output-format=json",
-		"-R",
 		"--languages=Go,C,C++,JavaScript,TypeScript",
-		".",
-	)
+	}
+
+	if files != nil {
+		// Index only the listed files via stdin — much faster than -R on large repos
+		args = append(args, "-L", "-")
+	} else {
+		args = append(args, "-R", ".")
+	}
+
+	cmd := exec.CommandContext(ctx, ctagsPath, args...)
 	cmd.Dir = dir
+
+	if files != nil {
+		cmd.Stdin = strings.NewReader(strings.Join(files, "\n"))
+	}
+
 	out, err := cmd.Output()
 	if err != nil {
 		return make(map[string][]Definition), nil
@@ -140,8 +172,8 @@ type SessionIndexer struct {
 	files   []string
 	symbols map[string][]Definition
 
-	stopCh  chan struct{}
-	done    chan struct{}
+	cancel context.CancelFunc
+	done   chan struct{}
 	refresh chan struct{}
 }
 
@@ -150,21 +182,25 @@ func NewSessionIndexer(worktree string) *SessionIndexer {
 	return &SessionIndexer{
 		worktree: worktree,
 		symbols:  make(map[string][]Definition),
-		stopCh:   make(chan struct{}),
 		done:     make(chan struct{}),
 		refresh:  make(chan struct{}, 1),
 	}
 }
 
-// Start begins the indexer with an immediate build and periodic refresh.
+// Start begins the indexer background loop with an immediate build.
+// Returns immediately — the build runs in the background goroutine.
 func (idx *SessionIndexer) Start() {
-	idx.build()
-	go idx.loop()
+	ctx, cancel := context.WithCancel(context.Background())
+	idx.cancel = cancel
+	go idx.loop(ctx)
+	idx.Refresh() // trigger immediate build without blocking caller
 }
 
-// Stop halts the periodic refresh.
+// Stop halts the indexer, killing any in-progress external commands immediately.
 func (idx *SessionIndexer) Stop() {
-	close(idx.stopCh)
+	if idx.cancel != nil {
+		idx.cancel()
+	}
 	<-idx.done
 }
 
@@ -195,28 +231,94 @@ func (idx *SessionIndexer) Lookup(name string) []Definition {
 	return out
 }
 
-func (idx *SessionIndexer) build() {
-	files, _ := listFilesInWorktree(idx.worktree)
-	symbols, _ := runCtags(idx.worktree)
+// AllSymbols returns a copy of the entire symbol table.
+func (idx *SessionIndexer) AllSymbols() map[string][]Definition {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	out := make(map[string][]Definition, len(idx.symbols))
+	for k, v := range idx.symbols {
+		defs := make([]Definition, len(v))
+		copy(defs, v)
+		out[k] = defs
+	}
+	return out
+}
 
+func logInfo(format string, args ...interface{}) {
+	if log.InfoLog != nil {
+		log.InfoLog.Printf(format, args...)
+	}
+}
+
+func logError(format string, args ...interface{}) {
+	if log.ErrorLog != nil {
+		log.ErrorLog.Printf(format, args...)
+	}
+}
+
+// build gets the file list first (fast), updates state, then runs ctags on those files.
+func (idx *SessionIndexer) build(ctx context.Context) {
+	// Step 1: get file list (fast — just git ls-files)
+	files, filesErr := listFilesInWorktreeCtx(ctx, idx.worktree)
+	if filesErr != nil {
+		if ctx.Err() != nil {
+			return // cancelled
+		}
+		logError("indexer build(%s): listFiles error: %v", idx.worktree, filesErr)
+	}
+
+	// Update files immediately so search works even before ctags finishes
 	idx.mu.Lock()
 	idx.files = files
+	idx.mu.Unlock()
+
+	if ctx.Err() != nil {
+		return
+	}
+
+	// Step 2: run ctags on only the git-tracked files (not recursive -R)
+	symbols, ctagsErr := runCtagsCtx(ctx, idx.worktree, files)
+	if ctagsErr != nil {
+		if ctx.Err() != nil {
+			return // cancelled
+		}
+		logError("indexer build(%s): runCtags error: %v", idx.worktree, ctagsErr)
+	}
+
+	if ctx.Err() != nil {
+		return
+	}
+
+	nSymbols := 0
+	for _, defs := range symbols {
+		nSymbols += len(defs)
+	}
+	logInfo("indexer build(%s): %d files, %d symbols (%d names)", idx.worktree, len(files), nSymbols, len(symbols))
+
+	idx.mu.Lock()
 	idx.symbols = symbols
 	idx.mu.Unlock()
 }
 
-func (idx *SessionIndexer) loop() {
+func (idx *SessionIndexer) loop(ctx context.Context) {
 	defer close(idx.done)
+	// Wait for the first refresh signal (sent immediately by Start)
+	select {
+	case <-ctx.Done():
+		return
+	case <-idx.refresh:
+		idx.build(ctx)
+	}
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-idx.stopCh:
+		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			idx.build()
+			idx.build(ctx)
 		case <-idx.refresh:
-			idx.build()
+			idx.build(ctx)
 		}
 	}
 }

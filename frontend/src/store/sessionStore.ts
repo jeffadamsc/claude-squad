@@ -39,6 +39,7 @@ interface SessionState {
   explorerTree: Map<string, DirectoryEntry[]>;
   openEditorFiles: EditorFile[];
   activeEditorFile: string | null;
+  pendingReveal: { line: number; column: number } | null;
   fileList: string[];
   quickOpenVisible: boolean;
 
@@ -64,6 +65,7 @@ interface SessionState {
   openEditorFile: (path: string, contents: string, language: string) => void;
   closeEditorFile: (path: string) => void;
   setActiveEditorFile: (path: string) => void;
+  setPendingReveal: (reveal: { line: number; column: number } | null) => void;
   updateEditorFileContents: (path: string, contents: string) => void;
   setFileList: (files: string[]) => void;
   setQuickOpenVisible: (visible: boolean) => void;
@@ -106,6 +108,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   explorerTree: new Map(),
   openEditorFiles: [],
   activeEditorFile: null,
+  pendingReveal: null,
   fileList: [],
   quickOpenVisible: false,
 
@@ -231,6 +234,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         explorerTree: new Map(),
         openEditorFiles: [],
         activeEditorFile: null,
+        pendingReveal: null,
         fileList: [],
         quickOpenVisible: false,
         ...(snapshot
@@ -274,6 +278,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }),
 
   setActiveEditorFile: (path) => set({ activeEditorFile: path }),
+
+  setPendingReveal: (reveal) => set({ pendingReveal: reveal }),
 
   updateEditorFileContents: (path, contents) =>
     set((state) => ({

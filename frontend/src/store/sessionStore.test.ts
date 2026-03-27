@@ -17,6 +17,7 @@ beforeEach(() => {
     explorerTree: new Map(),
     openEditorFiles: [],
     activeEditorFile: null,
+    pendingReveal: null,
     fileList: [],
     quickOpenVisible: false,
   });

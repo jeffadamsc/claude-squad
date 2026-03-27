@@ -125,6 +125,7 @@ declare global {
           IndexSession(sessionId: string): Promise<void>;
           StopIndexer(sessionId: string): Promise<void>;
           LookupSymbol(sessionId: string, symbol: string): Promise<SymbolDefinition[]>;
+          GetAllSymbols(sessionId: string): Promise<Record<string, SymbolDefinition[]> | null>;
         };
       };
     };
