@@ -10,6 +10,7 @@ import {
   registerDefinitionLink,
   getSymbolCache,
 } from "../../lib/definitionProvider";
+import { DiffViewer } from "./DiffViewer";
 
 interface EditorPaneProps {
   sessionId: string;
@@ -207,34 +208,40 @@ export function EditorPane({ sessionId }: EditorPaneProps) {
     );
   }
 
+  const isDiffTab = activeFile.type === "diff";
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <EditorTabBar />
       <div style={{ flex: 1 }}>
-        <Editor
-          key={activeFile.path}
-          defaultValue={activeFile.contents}
-          language={activeFile.language}
-          theme="catppuccin-mocha"
-          onMount={handleMount}
-          onChange={handleChange}
-          options={{
-            minimap: { enabled: false },
-            fontSize: 13,
-            fontFamily:
-              "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
-            lineNumbers: "on",
-            scrollBeyondLastLine: false,
-            automaticLayout: true,
-            wordWrap: "off",
-            bracketPairColorization: { enabled: true },
-            padding: { top: 8 },
-            gotoLocation: {
-              multiple: "peek",
-              multipleDefinitions: "peek",
-            },
-          }}
-        />
+        {isDiffTab ? (
+          <DiffViewer sessionId={sessionId} />
+        ) : (
+          <Editor
+            key={activeFile.path}
+            defaultValue={activeFile.contents}
+            language={activeFile.language}
+            theme="catppuccin-mocha"
+            onMount={handleMount}
+            onChange={handleChange}
+            options={{
+              minimap: { enabled: false },
+              fontSize: 13,
+              fontFamily:
+                "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+              lineNumbers: "on",
+              scrollBeyondLastLine: false,
+              automaticLayout: true,
+              wordWrap: "off",
+              bracketPairColorization: { enabled: true },
+              padding: { top: 8 },
+              gotoLocation: {
+                multiple: "peek",
+                multipleDefinitions: "peek",
+              },
+            }}
+          />
+        )}
       </div>
     </div>
   );

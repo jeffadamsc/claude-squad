@@ -16,7 +16,10 @@ export function EditorTabBar() {
       }}
     >
       {openEditorFiles.map((file) => {
-        const name = file.path.split("/").pop() ?? file.path;
+        const isDiff = file.type === "diff";
+        const name = isDiff
+          ? "Changes"
+          : (file.path.split("/").pop() ?? file.path);
         const active = file.path === activeEditorFile;
         return (
           <div
@@ -38,6 +41,7 @@ export function EditorTabBar() {
               whiteSpace: "nowrap",
             }}
           >
+            {isDiff && <span style={{ fontSize: 10 }}>{"\u0394"}</span>}
             {name}
             <span
               onClick={(e) => {

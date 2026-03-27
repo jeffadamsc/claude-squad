@@ -14,6 +14,7 @@ export function FileExplorer({ sessionId }: FileExplorerProps) {
   const clearExplorerTree = useSessionStore((s) => s.clearExplorerTree);
   const openEditorFile = useSessionStore((s) => s.openEditorFile);
   const activeEditorFile = useSessionStore((s) => s.activeEditorFile);
+  const openDiffTab = useSessionStore((s) => s.openDiffTab);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(
     new Set(["."])
   );
@@ -130,12 +131,21 @@ export function FileExplorer({ sessionId }: FileExplorerProps) {
         }}
       >
         <span>Explorer</span>
-        <span
-          onClick={handleRefresh}
-          style={{ cursor: "pointer", fontSize: 13 }}
-        >
-          {"\u21BB"}
-        </span>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <span
+            onClick={() => openDiffTab()}
+            style={{ cursor: "pointer", fontSize: 12 }}
+            title="Show changes"
+          >
+            {"\u0394"}
+          </span>
+          <span
+            onClick={handleRefresh}
+            style={{ cursor: "pointer", fontSize: 13 }}
+          >
+            {"\u21BB"}
+          </span>
+        </div>
       </div>
       <div style={{ flex: 1, overflowY: "auto", paddingTop: 4 }}>
         {renderTree(".", 0)}
