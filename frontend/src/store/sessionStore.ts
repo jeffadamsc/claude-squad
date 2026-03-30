@@ -26,6 +26,20 @@ interface ScopeMode {
   } | null;
 }
 
+const DEFAULT_FONT_SIZE = 13;
+const FONT_SIZE_KEY = "cs-editor-font-size";
+
+function loadFontSize(): number {
+  try {
+    const stored = localStorage.getItem(FONT_SIZE_KEY);
+    if (stored) {
+      const n = Number(stored);
+      if (n >= 8 && n <= 40) return n;
+    }
+  } catch {}
+  return DEFAULT_FONT_SIZE;
+}
+
 interface SessionState {
   sessions: SessionInfo[];
   statuses: Map<string, SessionStatus>;
@@ -46,6 +60,7 @@ interface SessionState {
   quickOpenVisible: boolean;
   diffFiles: DiffFile[];
   diffLoading: boolean;
+  editorFontSize: number;
 
   setSessions: (sessions: SessionInfo[]) => void;
   updateStatuses: (statuses: SessionStatus[]) => void;
@@ -77,6 +92,8 @@ interface SessionState {
   fetchDiffFiles: (sessionId: string) => Promise<void>;
   clearDiffFiles: () => void;
   openDiffTab: () => void;
+  setEditorFontSize: (size: number) => void;
+  zoomEditorFont: (delta: number) => void;
 }
 
 const extToLanguage: Record<string, string> = {
@@ -120,6 +137,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   quickOpenVisible: false,
   diffFiles: [],
   diffLoading: false,
+  editorFontSize: loadFontSize(),
 
   setSessions: (sessions) => set({ sessions }),
 
@@ -328,4 +346,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         activeEditorFile: "__diff__",
       };
     }),
+
+  setEditorFontSize: (size) => {
+    const clamped = Math.max(8, Math.min(40, size));
+    localStorage.setItem(FONT_SIZE_KEY, String(clamped));
+    set({ editorFontSize: clamped });
+  },
+
+  zoomEditorFont: (delta) => {
+    const current = get().editorFontSize;
+    const next = Math.max(8, Math.min(40, current + delta));
+    localStorage.setItem(FONT_SIZE_KEY, String(next));
+    set({ editorFontSize: next });
+  },
 }));

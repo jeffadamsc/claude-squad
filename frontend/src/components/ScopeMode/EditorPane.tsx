@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback, useState } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
 import { useSessionStore, detectLanguage } from "../../store/sessionStore";
@@ -11,6 +11,7 @@ import {
   getSymbolCache,
 } from "../../lib/definitionProvider";
 import { DiffViewer } from "./DiffViewer";
+import { MarkdownPreview } from "./MarkdownPreview";
 
 interface EditorPaneProps {
   sessionId: string;
@@ -22,6 +23,9 @@ export function EditorPane({ sessionId }: EditorPaneProps) {
   const updateEditorFileContents = useSessionStore(
     (s) => s.updateEditorFileContents
   );
+  const editorFontSize = useSessionStore((s) => s.editorFontSize);
+  const zoomEditorFont = useSessionStore((s) => s.zoomEditorFont);
+  const monacoRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const pendingSaveRef = useRef<{ path: string; contents: string } | null>(
     null
@@ -29,12 +33,16 @@ export function EditorPane({ sessionId }: EditorPaneProps) {
   const definitionProviderRef = useRef<{ dispose: () => void } | null>(null);
   const editorOpenerRef = useRef<{ dispose: () => void } | null>(null);
   const definitionLinkRef = useRef<{ dispose: () => void } | null>(null);
+  const [showMarkdownPreview, setShowMarkdownPreview] = useState(false);
 
   const activeFile = openEditorFiles.find(
     (f) => f.path === activeEditorFile
   );
 
+  const isMarkdown = activeFile?.language === "markdown" && activeFile.type === "file";
+
   const handleMount: OnMount = (editor, monaco) => {
+    monacoRef.current = editor;
     monaco.editor.defineTheme("catppuccin-mocha", catppuccinMocha);
     monaco.editor.setTheme("catppuccin-mocha");
 
@@ -156,6 +164,34 @@ export function EditorPane({ sessionId }: EditorPaneProps) {
     [activeFile, updateEditorFileContents, flushSave]
   );
 
+  // Sync font size to live Monaco editor instance
+  useEffect(() => {
+    if (monacoRef.current) {
+      monacoRef.current.updateOptions({ fontSize: editorFontSize });
+    }
+  }, [editorFontSize]);
+
+  // Handle Cmd+/Cmd- for font zoom
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key === "=" || e.key === "+") {
+        e.preventDefault();
+        zoomEditorFont(1);
+      } else if (e.key === "-") {
+        e.preventDefault();
+        zoomEditorFont(-1);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [zoomEditorFont]);
+
+  // Reset markdown preview when switching files
+  useEffect(() => {
+    setShowMarkdownPreview(false);
+  }, [activeEditorFile]);
+
   // Flush pending save and clean up definition provider on unmount
   useEffect(() => {
     return () => {
@@ -213,9 +249,46 @@ export function EditorPane({ sessionId }: EditorPaneProps) {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <EditorTabBar />
-      <div style={{ flex: 1 }}>
+      {isMarkdown && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "4px 12px",
+            background: "var(--mantle)",
+            borderBottom: "1px solid var(--surface0)",
+            fontSize: 12,
+          }}
+        >
+          <span
+            onClick={() => setShowMarkdownPreview(false)}
+            style={{
+              cursor: "pointer",
+              color: !showMarkdownPreview ? "var(--blue)" : "var(--overlay0)",
+              fontWeight: !showMarkdownPreview ? 600 : 400,
+            }}
+          >
+            Edit
+          </span>
+          <span style={{ color: "var(--surface1)" }}>|</span>
+          <span
+            onClick={() => setShowMarkdownPreview(true)}
+            style={{
+              cursor: "pointer",
+              color: showMarkdownPreview ? "var(--blue)" : "var(--overlay0)",
+              fontWeight: showMarkdownPreview ? 600 : 400,
+            }}
+          >
+            Preview
+          </span>
+        </div>
+      )}
+      <div style={{ flex: 1, overflow: "hidden" }}>
         {isDiffTab ? (
           <DiffViewer sessionId={sessionId} />
+        ) : isMarkdown && showMarkdownPreview ? (
+          <MarkdownPreview content={activeFile.contents} fontSize={editorFontSize} />
         ) : (
           <Editor
             key={activeFile.path}
@@ -226,7 +299,7 @@ export function EditorPane({ sessionId }: EditorPaneProps) {
             onChange={handleChange}
             options={{
               minimap: { enabled: false },
-              fontSize: 13,
+              fontSize: editorFontSize,
               fontFamily:
                 "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
               lineNumbers: "on",

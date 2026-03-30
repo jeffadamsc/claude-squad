@@ -25,14 +25,19 @@ export function TerminalPane({ sessionId, wsPort, focused, instanceId }: Termina
   const { disconnected, wsRef, fitRef, termRef } = useTerminal(containerRef, { sessionId, wsPort });
   const [dragOver, setDragOver] = useState(false);
 
-  // Refit terminal when tab becomes visible again
+  // Refit terminal and scroll to bottom when tab becomes visible again
   useEffect(() => {
     if (focused && fitRef.current) {
       requestAnimationFrame(() => {
         fitRef.current?.fit();
+        // Ensure viewport is scrolled to bottom after refit to prevent
+        // the terminal appearing stuck at an arbitrary scroll position
+        if (termRef.current) {
+          termRef.current.scrollToBottom();
+        }
       });
     }
-  }, [focused, fitRef]);
+  }, [focused, fitRef, termRef]);
 
   // Focus terminal when it's the active pane and window regains focus
   useEffect(() => {
@@ -41,7 +46,12 @@ export function TerminalPane({ sessionId, wsPort, focused, instanceId }: Termina
     if (term) term.focus();
 
     const onWindowFocus = () => {
-      if (termRef.current) termRef.current.focus();
+      if (termRef.current) {
+        termRef.current.focus();
+        // Scroll to bottom when window regains focus to fix viewport
+        // getting stuck at an arbitrary scroll position while away
+        termRef.current.scrollToBottom();
+      }
     };
     window.addEventListener("focus", onWindowFocus);
     return () => window.removeEventListener("focus", onWindowFocus);

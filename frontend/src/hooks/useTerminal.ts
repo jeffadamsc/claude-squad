@@ -25,6 +25,14 @@ export function useTerminal(
   const intentionalClose = useRef(false);
   const [disconnected, setDisconnected] = useState(false);
 
+  // Scroll terminal to bottom after a short delay to let xterm process data
+  const scrollToBottom = useCallback((term: Terminal) => {
+    // Use requestAnimationFrame to ensure xterm has processed the data
+    requestAnimationFrame(() => {
+      term.scrollToBottom();
+    });
+  }, []);
+
   const connect = useCallback(() => {
     const container = containerRef.current;
     if (!container || !options.sessionId || !options.wsPort) return;
@@ -62,6 +70,13 @@ export function useTerminal(
           );
         }
       }
+
+      // After reconnection, the server replays the snapshot which can leave
+      // the viewport scrolled to an arbitrary position. Scroll to bottom after
+      // giving xterm time to process the replayed data.
+      setTimeout(() => {
+        if (term) scrollToBottom(term);
+      }, 50);
     };
 
     ws.onclose = () => {
@@ -75,7 +90,7 @@ export function useTerminal(
     };
 
     wsRef.current = ws;
-  }, [options.sessionId, options.wsPort, containerRef]);
+  }, [options.sessionId, options.wsPort, containerRef, scrollToBottom]);
 
   const scheduleReconnect = useCallback(() => {
     if (reconnectTimer.current) return;
@@ -133,6 +148,10 @@ export function useTerminal(
           JSON.stringify({ type: "resize", rows: dims.rows, cols: dims.cols })
         );
       }
+
+      // After initial connection, the server replays the snapshot which can
+      // leave the viewport scrolled to an arbitrary position.
+      setTimeout(() => scrollToBottom(term), 50);
     };
 
     ws.onclose = () => {
