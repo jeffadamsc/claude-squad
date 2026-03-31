@@ -35,6 +35,12 @@ export function useTerminal(
     });
   }, []);
 
+  // Check if the terminal viewport is currently scrolled to the bottom
+  const isAtBottom = useCallback((term: Terminal) => {
+    const buf = term.buffer.active;
+    return buf.viewportY >= buf.baseY;
+  }, []);
+
   const connect = useCallback(() => {
     const container = containerRef.current;
     if (!container || !options.sessionId || !options.wsPort) return;
@@ -169,6 +175,7 @@ export function useTerminal(
     const resizeObserver = new ResizeObserver(() => {
       // Skip resize when container is hidden (display:none gives 0 dimensions)
       if (!container.offsetWidth || !container.offsetHeight) return;
+      const wasAtBottom = isAtBottom(term);
       fit.fit();
       const dims = fit.proposeDimensions();
       const currentWs = wsRef.current;
@@ -176,6 +183,11 @@ export function useTerminal(
         currentWs.send(
           JSON.stringify({ type: "resize", rows: dims.rows, cols: dims.cols })
         );
+      }
+      // Refit after resize can leave viewport at a stale scroll position.
+      // Restore scroll-to-bottom if we were already there.
+      if (wasAtBottom) {
+        scrollToBottom(term);
       }
     });
     resizeObserver.observe(container);
@@ -206,6 +218,7 @@ export function useTerminal(
     const term = termRef.current;
     const fit = fitRef.current;
     if (!term) return;
+    const wasAtBottom = isAtBottom(term);
     term.options.fontSize = terminalFontSize;
     if (fit) {
       fit.fit();
@@ -215,7 +228,12 @@ export function useTerminal(
         ws.send(JSON.stringify({ type: "resize", rows: dims.rows, cols: dims.cols }));
       }
     }
-  }, [terminalFontSize]);
+    // Refit changes the row count which can leave the viewport at a stale
+    // scroll position. Restore scroll-to-bottom if we were there before.
+    if (wasAtBottom) {
+      scrollToBottom(term);
+    }
+  }, [terminalFontSize, isAtBottom, scrollToBottom]);
 
   return { termRef, wsRef, fitRef, disconnected };
 }
