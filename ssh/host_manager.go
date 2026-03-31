@@ -123,11 +123,18 @@ func (hm *HostManager) handleDisconnect(hostID string) {
 }
 
 func (hm *HostManager) reconnectLoop(hostID string) {
+	const maxDuration = 5 * time.Minute
 	delay := 3 * time.Second
 	maxDelay := 30 * time.Second
+	deadline := time.Now().Add(maxDuration)
 
 	for {
 		time.Sleep(delay)
+
+		if time.Now().After(deadline) {
+			log.ErrorLog.Printf("reconnect to host %s: giving up after %v", hostID, maxDuration)
+			return
+		}
 
 		hm.mu.Lock()
 		_, ok := hm.clients[hostID]

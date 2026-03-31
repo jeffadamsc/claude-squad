@@ -305,6 +305,16 @@ func (m *Manager) WaitExit(id string, timeout time.Duration) bool {
 	}
 }
 
+func (m *Manager) GetPID(id string) int {
+	m.mu.RLock()
+	sess, ok := m.sessions[id]
+	m.mu.RUnlock()
+	if !ok || sess.cmd == nil || sess.cmd.Process == nil {
+		return 0
+	}
+	return sess.cmd.Process.Pid
+}
+
 func (m *Manager) Write(id string, data []byte) error {
 	m.mu.RLock()
 	sess, ok := m.sessions[id]

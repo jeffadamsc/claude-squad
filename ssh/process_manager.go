@@ -202,6 +202,11 @@ func (m *SSHProcessManager) CheckTrustPrompt(id string) bool {
 	return sess.monitor.CheckTrustPrompt()
 }
 
+func (m *SSHProcessManager) GetPID(id string) int {
+	// SSH sessions don't expose the remote PID directly.
+	return 0
+}
+
 func (m *SSHProcessManager) WaitExit(id string, timeout time.Duration) bool {
 	m.mu.RLock()
 	sess, ok := m.sessions[id]

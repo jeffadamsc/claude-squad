@@ -5,6 +5,7 @@ import (
 	"claude-squad/pty"
 	"claude-squad/session/git"
 	"crypto/rand"
+	"encoding/json"
 	"os/exec"
 	"path/filepath"
 
@@ -815,4 +816,57 @@ func (i *Instance) SendKeys(keys string) error {
 		return fmt.Errorf("cannot send keys to instance that has not been started or is paused")
 	}
 	return i.processManager.Write(i.processID, []byte(keys))
+}
+
+// claudeSessionFile represents the JSON structure of ~/.claude/sessions/<PID>.json
+type claudeSessionFile struct {
+	PID       int    `json:"pid"`
+	SessionID string `json:"sessionId"`
+}
+
+// SyncClaudeSessionID reads Claude Code's session state file for the running
+// process and updates ClaudeSessionID if the active conversation has changed
+// (e.g. after /resume or /clear). Returns true if the ID was updated.
+func (i *Instance) SyncClaudeSessionID() bool {
+	if !i.started || i.Status == Paused || i.processManager == nil || i.processID == "" {
+		return false
+	}
+	// Only applies to Claude sessions
+	fields := strings.Fields(i.Program)
+	if len(fields) == 0 || !strings.HasSuffix(fields[0], ProgramClaude) {
+		return false
+	}
+	// Local sessions only — SSH sessions don't expose PID
+	if i.HostID != "" {
+		return false
+	}
+
+	pid := i.processManager.GetPID(i.processID)
+	if pid == 0 {
+		return false
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+
+	sessionFile := filepath.Join(homeDir, ".claude", "sessions", fmt.Sprintf("%d.json", pid))
+	data, err := os.ReadFile(sessionFile)
+	if err != nil {
+		return false
+	}
+
+	var sf claudeSessionFile
+	if err := json.Unmarshal(data, &sf); err != nil {
+		return false
+	}
+
+	if sf.SessionID == "" || sf.SessionID == i.ClaudeSessionID {
+		return false
+	}
+
+	log.InfoLog.Printf("detected claude session change for %q: %s -> %s", i.Title, i.ClaudeSessionID, sf.SessionID)
+	i.ClaudeSessionID = sf.SessionID
+	return true
 }

@@ -28,10 +28,11 @@ interface ScopeMode {
 
 const DEFAULT_FONT_SIZE = 13;
 const FONT_SIZE_KEY = "cs-editor-font-size";
+const TERMINAL_FONT_SIZE_KEY = "cs-terminal-font-size";
 
-function loadFontSize(): number {
+function loadPersistedFontSize(key: string): number {
   try {
-    const stored = localStorage.getItem(FONT_SIZE_KEY);
+    const stored = localStorage.getItem(key);
     if (stored) {
       const n = Number(stored);
       if (n >= 8 && n <= 40) return n;
@@ -61,6 +62,7 @@ interface SessionState {
   diffFiles: DiffFile[];
   diffLoading: boolean;
   editorFontSize: number;
+  terminalFontSize: number;
 
   setSessions: (sessions: SessionInfo[]) => void;
   updateStatuses: (statuses: SessionStatus[]) => void;
@@ -94,6 +96,8 @@ interface SessionState {
   openDiffTab: () => void;
   setEditorFontSize: (size: number) => void;
   zoomEditorFont: (delta: number) => void;
+  setTerminalFontSize: (size: number) => void;
+  zoomTerminalFont: (delta: number) => void;
 }
 
 const extToLanguage: Record<string, string> = {
@@ -137,7 +141,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   quickOpenVisible: false,
   diffFiles: [],
   diffLoading: false,
-  editorFontSize: loadFontSize(),
+  editorFontSize: loadPersistedFontSize(FONT_SIZE_KEY),
+  terminalFontSize: loadPersistedFontSize(TERMINAL_FONT_SIZE_KEY),
 
   setSessions: (sessions) => set({ sessions }),
 
@@ -358,5 +363,18 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const next = Math.max(8, Math.min(40, current + delta));
     localStorage.setItem(FONT_SIZE_KEY, String(next));
     set({ editorFontSize: next });
+  },
+
+  setTerminalFontSize: (size) => {
+    const clamped = Math.max(8, Math.min(40, size));
+    localStorage.setItem(TERMINAL_FONT_SIZE_KEY, String(clamped));
+    set({ terminalFontSize: clamped });
+  },
+
+  zoomTerminalFont: (delta) => {
+    const current = get().terminalFontSize;
+    const next = Math.max(8, Math.min(40, current + delta));
+    localStorage.setItem(TERMINAL_FONT_SIZE_KEY, String(next));
+    set({ terminalFontSize: next });
   },
 }));

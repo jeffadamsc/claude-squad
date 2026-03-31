@@ -447,11 +447,16 @@ func (api *SessionAPI) GetSessionStatus(id string) (*SessionStatus, error) {
 
 func (api *SessionAPI) PollAllStatuses() ([]SessionStatus, error) {
 	api.mu.RLock()
-	defer api.mu.RUnlock()
 
+	needsSave := false
 	result := make([]SessionStatus, 0, len(api.instances))
 	for _, inst := range api.instances {
 		hasPrompt := inst.HasPrompt()
+
+		// Check if Claude Code's active session has changed (e.g. /resume, /clear).
+		if inst.SyncClaudeSessionID() {
+			needsSave = true
+		}
 
 		var ds DiffStats
 		if stats := inst.GetDiffStats(); stats != nil {
@@ -473,6 +478,15 @@ func (api *SessionAPI) PollAllStatuses() ([]SessionStatus, error) {
 			SSHConnected: sshConnected,
 		})
 	}
+	api.mu.RUnlock()
+
+	if needsSave {
+		api.mu.Lock()
+		api.dirty = true
+		api.saveInstancesLocked()
+		api.mu.Unlock()
+	}
+
 	return result, nil
 }
 

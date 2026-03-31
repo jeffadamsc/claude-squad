@@ -24,4 +24,6 @@ type ProcessManager interface {
 	GetContent(id string) string
 	Write(id string, data []byte) error
 	WaitExit(id string, timeout time.Duration) bool
+	// GetPID returns the OS process ID for the given session, or 0 if unavailable.
+	GetPID(id string) int
 }

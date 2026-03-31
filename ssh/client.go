@@ -53,7 +53,7 @@ func (c *Client) Connect() error {
 		return fmt.Errorf("build ssh config: %w", err)
 	}
 
-	client, err := ssh.Dial("tcp", c.address(), sshCfg)
+	client, err := dialSSH(c.address(), sshCfg)
 	if err != nil {
 		return fmt.Errorf("ssh dial: %w", err)
 	}
@@ -87,7 +87,7 @@ func TestConnection(config HostConfig, secret string, program string) (connOK bo
 	}
 
 	addr := fmt.Sprintf("%s:%d", config.Host, config.Port)
-	client, err := ssh.Dial("tcp", addr, sshCfg)
+	client, err := dialSSH(addr, sshCfg)
 	if err != nil {
 		return false, false, fmt.Sprintf("Connection failed: %v", err)
 	}
@@ -204,6 +204,43 @@ func (c *Client) keepaliveLoop() {
 			}
 		}
 	}
+}
+
+// dialSSH resolves the hostname to all available addresses and tries each one.
+// This avoids getting stuck on a stale IPv6 address when a .local host's IP
+// changes (common with mDNS/Bonjour after sleep/wake cycles).
+func dialSSH(address string, config *ssh.ClientConfig) (*ssh.Client, error) {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		// Fallback: address doesn't have host:port format
+		return ssh.Dial("tcp", address, config)
+	}
+
+	addrs, err := net.LookupHost(host)
+	if err != nil || len(addrs) == 0 {
+		// DNS resolution failed, try direct dial as fallback
+		return ssh.Dial("tcp", address, config)
+	}
+
+	log.InfoLog.Printf("resolved %s to %v", host, addrs)
+
+	var lastErr error
+	for _, addr := range addrs {
+		target := net.JoinHostPort(addr, port)
+		conn, err := net.DialTimeout("tcp", target, config.Timeout)
+		if err != nil {
+			lastErr = fmt.Errorf("dial %s: %w", target, err)
+			continue
+		}
+		sshConn, chans, reqs, err := ssh.NewClientConn(conn, address, config)
+		if err != nil {
+			conn.Close()
+			lastErr = fmt.Errorf("ssh handshake %s: %w", target, err)
+			continue
+		}
+		return ssh.NewClient(sshConn, chans, reqs), nil
+	}
+	return nil, fmt.Errorf("all addresses failed for %s: %w", host, lastErr)
 }
 
 func buildSSHConfig(host HostConfig, secret string) (*ssh.ClientConfig, error) {

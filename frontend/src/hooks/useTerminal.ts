@@ -3,6 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { AttachAddon } from "@xterm/addon-attach";
 import { FitAddon } from "@xterm/addon-fit";
 import { theme } from "../lib/theme";
+import { useSessionStore } from "../store/sessionStore";
 
 interface UseTerminalOptions {
   sessionId: string;
@@ -24,6 +25,7 @@ export function useTerminal(
   const reconnectDelay = useRef(INITIAL_RECONNECT_DELAY);
   const intentionalClose = useRef(false);
   const [disconnected, setDisconnected] = useState(false);
+  const terminalFontSize = useSessionStore((s) => s.terminalFontSize);
 
   // Scroll terminal to bottom after a short delay to let xterm process data
   const scrollToBottom = useCallback((term: Terminal) => {
@@ -111,7 +113,7 @@ export function useTerminal(
     const term = new Terminal({
       cursorBlink: true,
       fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
-      fontSize: 13,
+      fontSize: useSessionStore.getState().terminalFontSize,
       theme: {
         background: theme.crust,
         foreground: theme.text,
@@ -198,6 +200,22 @@ export function useTerminal(
       fitRef.current = null;
     };
   }, [options.sessionId, options.wsPort, containerRef, connect, scheduleReconnect]);
+
+  // Sync font size changes to the live terminal instance
+  useEffect(() => {
+    const term = termRef.current;
+    const fit = fitRef.current;
+    if (!term) return;
+    term.options.fontSize = terminalFontSize;
+    if (fit) {
+      fit.fit();
+      const dims = fit.proposeDimensions();
+      const ws = wsRef.current;
+      if (dims && dims.rows > 0 && dims.cols > 0 && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "resize", rows: dims.rows, cols: dims.cols }));
+      }
+    }
+  }, [terminalFontSize]);
 
   return { termRef, wsRef, fitRef, disconnected };
 }

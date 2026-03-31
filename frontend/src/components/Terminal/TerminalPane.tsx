@@ -24,6 +24,24 @@ export function TerminalPane({ sessionId, wsPort, focused, instanceId }: Termina
   const containerRef = useRef<HTMLDivElement>(null);
   const { disconnected, wsRef, fitRef, termRef } = useTerminal(containerRef, { sessionId, wsPort });
   const [dragOver, setDragOver] = useState(false);
+  const zoomTerminalFont = useSessionStore((s) => s.zoomTerminalFont);
+
+  // Handle Cmd+/Cmd- for terminal font zoom
+  useEffect(() => {
+    if (!focused) return;
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key === "=" || e.key === "+") {
+        e.preventDefault();
+        zoomTerminalFont(1);
+      } else if (e.key === "-") {
+        e.preventDefault();
+        zoomTerminalFont(-1);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [focused, zoomTerminalFont]);
 
   // Refit terminal and scroll to bottom when tab becomes visible again
   useEffect(() => {
