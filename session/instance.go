@@ -260,6 +260,17 @@ func (i *Instance) IsInPlace() bool {
 	return i.inPlace
 }
 
+// getWorkDir returns the working directory for this instance's process.
+func (i *Instance) getWorkDir() string {
+	if i.inPlace {
+		return i.Path
+	}
+	if i.gitWorktree != nil {
+		return i.gitWorktree.GetWorktreePath()
+	}
+	return i.Path
+}
+
 // spawnProcess spawns the program in processManager using the given working directory.
 // It parses i.Program into command + args and stores the returned process ID.
 // If resume is true and the program is claude, --resume is added to resume
@@ -303,8 +314,12 @@ func (i *Instance) spawnProcess(dir string, resume bool) error {
 
 	if isClaude {
 		args = append(args, "--allow-dangerously-skip-permissions")
-		if resume && i.ClaudeSessionID != "" {
-			args = append(args, "--resume", i.ClaudeSessionID)
+		if resume {
+			// Use --continue to pick up the most recent conversation in
+			// this directory. This handles /clear correctly — the PID session
+			// file is only written at startup and doesn't track /clear, so
+			// --resume <id> would resume the stale pre-/clear conversation.
+			args = append(args, "--continue")
 		} else if i.ClaudeSessionID == "" {
 			// First start: generate a session ID so we can resume later
 			id := generateUUID()
@@ -319,15 +334,14 @@ func (i *Instance) spawnProcess(dir string, resume bool) error {
 	}
 	i.processID = id
 
-	// If we attempted a resume, check for early exit (conversation not found).
-	if isClaude && resume && i.ClaudeSessionID != "" {
+	// If --continue failed (e.g. no conversations in directory), fall back
+	// to a fresh session.
+	if isClaude && resume {
 		if exited := i.processManager.WaitExit(id, 3*time.Second); exited {
 			output := i.processManager.GetContent(id)
-			if strings.Contains(output, "No conversation found") {
-				log.InfoLog.Printf("claude --resume failed (conversation not found), starting fresh session")
-				// Kill the dead process entry.
+			if strings.Contains(output, "No conversation found") || strings.Contains(output, "no recent conversation") {
+				log.InfoLog.Printf("claude --continue failed, starting fresh session")
 				_ = i.processManager.Kill(id)
-				// Clear stale session ID and start fresh.
 				i.ClaudeSessionID = ""
 				return i.spawnProcess(dir, false)
 			}
@@ -824,25 +838,35 @@ type claudeSessionFile struct {
 	SessionID string `json:"sessionId"`
 }
 
-// SyncClaudeSessionID reads Claude Code's session state file for the running
-// process and updates ClaudeSessionID if the active conversation has changed
-// (e.g. after /resume or /clear). Returns true if the ID was updated.
+// claudeProjectDirName converts an absolute path to the directory name Claude
+// Code uses under ~/.claude/projects/. Non-alphanumeric characters (except
+// hyphens) are replaced with hyphens.
+func claudeProjectDirName(absPath string) string {
+	var b strings.Builder
+	for _, c := range absPath {
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' {
+			b.WriteRune(c)
+		} else {
+			b.WriteByte('-')
+		}
+	}
+	return b.String()
+}
+
+// SyncClaudeSessionID detects when the active Claude conversation has changed
+// (e.g. after /resume or /clear) and updates ClaudeSessionID. It first checks
+// the PID session file, then falls back to scanning the Claude project
+// directory for the most recently modified conversation. Returns true if the
+// ID was updated.
 func (i *Instance) SyncClaudeSessionID() bool {
 	if !i.started || i.Status == Paused || i.processManager == nil || i.processID == "" {
 		return false
 	}
-	// Only applies to Claude sessions
 	fields := strings.Fields(i.Program)
 	if len(fields) == 0 || !strings.HasSuffix(fields[0], ProgramClaude) {
 		return false
 	}
-	// Local sessions only — SSH sessions don't expose PID
 	if i.HostID != "" {
-		return false
-	}
-
-	pid := i.processManager.GetPID(i.processID)
-	if pid == 0 {
 		return false
 	}
 
@@ -851,22 +875,54 @@ func (i *Instance) SyncClaudeSessionID() bool {
 		return false
 	}
 
-	sessionFile := filepath.Join(homeDir, ".claude", "sessions", fmt.Sprintf("%d.json", pid))
-	data, err := os.ReadFile(sessionFile)
+	// Try the PID session file first (handles /resume within Claude).
+	pid := i.processManager.GetPID(i.processID)
+	if pid != 0 {
+		sessionFile := filepath.Join(homeDir, ".claude", "sessions", fmt.Sprintf("%d.json", pid))
+		if data, err := os.ReadFile(sessionFile); err == nil {
+			var sf claudeSessionFile
+			if err := json.Unmarshal(data, &sf); err == nil && sf.SessionID != "" && sf.SessionID != i.ClaudeSessionID {
+				log.InfoLog.Printf("detected claude session change (pid file) for %q: %s -> %s", i.Title, i.ClaudeSessionID, sf.SessionID)
+				i.ClaudeSessionID = sf.SessionID
+				return true
+			}
+		}
+	}
+
+	// Fall back to scanning the Claude project directory for the most
+	// recently modified .jsonl file. The PID file is only written at
+	// startup and does not reflect /clear, so this catches that case.
+	workDir := i.getWorkDir()
+	if workDir == "" {
+		return false
+	}
+	projectDir := filepath.Join(homeDir, ".claude", "projects", claudeProjectDirName(workDir))
+	entries, err := os.ReadDir(projectDir)
 	if err != nil {
 		return false
 	}
 
-	var sf claudeSessionFile
-	if err := json.Unmarshal(data, &sf); err != nil {
+	var newestID string
+	var newestTime time.Time
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().After(newestTime) {
+			newestTime = info.ModTime()
+			newestID = strings.TrimSuffix(e.Name(), ".jsonl")
+		}
+	}
+
+	if newestID == "" || newestID == i.ClaudeSessionID {
 		return false
 	}
 
-	if sf.SessionID == "" || sf.SessionID == i.ClaudeSessionID {
-		return false
-	}
-
-	log.InfoLog.Printf("detected claude session change for %q: %s -> %s", i.Title, i.ClaudeSessionID, sf.SessionID)
-	i.ClaudeSessionID = sf.SessionID
+	log.InfoLog.Printf("detected claude session change (project dir) for %q: %s -> %s", i.Title, i.ClaudeSessionID, newestID)
+	i.ClaudeSessionID = newestID
 	return true
 }
