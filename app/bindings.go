@@ -1458,6 +1458,39 @@ func (api *SessionAPI) CopyPath(sessionID string, srcPath string, destPath strin
 	return nil
 }
 
+// SpawnShell spawns a shell PTY in the session's worktree directory and returns
+// its PTY session ID for WebSocket routing.
+func (api *SessionAPI) SpawnShell(sessionID string) (string, error) {
+	api.mu.RLock()
+	inst, ok := api.instances[sessionID]
+	api.mu.RUnlock()
+	if !ok {
+		return "", fmt.Errorf("session %s not found", sessionID)
+	}
+
+	workDir := inst.GetWorkDir()
+
+	// Detect user's shell
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/zsh"
+	}
+
+	ptyID, err := api.ptyManager.Spawn(shell, []string{"-l"}, ptyPkg.SpawnOptions{
+		Dir: workDir,
+	})
+	if err != nil {
+		return "", fmt.Errorf("spawn shell: %w", err)
+	}
+
+	return ptyID, nil
+}
+
+// KillShell kills a previously spawned shell PTY.
+func (api *SessionAPI) KillShell(ptyID string) error {
+	return api.ptyManager.Kill(ptyID)
+}
+
 // saveInstancesLocked persists all instances to disk. Must be called with api.mu held.
 // Only writes if instances have been modified (dirty flag).
 func (api *SessionAPI) saveInstancesLocked() {

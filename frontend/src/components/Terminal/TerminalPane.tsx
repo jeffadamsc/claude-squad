@@ -48,10 +48,14 @@ export function TerminalPane({ sessionId, wsPort, focused, instanceId }: Termina
     if (focused && fitRef.current) {
       requestAnimationFrame(() => {
         fitRef.current?.fit();
-        // Ensure viewport is scrolled to bottom after refit to prevent
-        // the terminal appearing stuck at an arbitrary scroll position
+        // After refit, xterm may need an extra frame to finish layout.
+        // Double-RAF ensures scrollToBottom fires after rendering completes.
         if (termRef.current) {
-          termRef.current.scrollToBottom();
+          const term = termRef.current;
+          term.scrollToBottom();
+          requestAnimationFrame(() => {
+            term.scrollToBottom();
+          });
         }
       });
     }
@@ -65,10 +69,16 @@ export function TerminalPane({ sessionId, wsPort, focused, instanceId }: Termina
 
     const onWindowFocus = () => {
       if (termRef.current) {
-        termRef.current.focus();
-        // Scroll to bottom when window regains focus to fix viewport
-        // getting stuck at an arbitrary scroll position while away
-        termRef.current.scrollToBottom();
+        const term = termRef.current;
+        term.focus();
+        // Scroll to bottom when window regains focus. Use double-RAF to
+        // handle the browser recalculating viewport sizes after focus.
+        requestAnimationFrame(() => {
+          term.scrollToBottom();
+          requestAnimationFrame(() => {
+            term.scrollToBottom();
+          });
+        });
       }
     };
     window.addEventListener("focus", onWindowFocus);

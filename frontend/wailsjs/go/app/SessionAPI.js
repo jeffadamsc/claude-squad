@@ -82,6 +82,10 @@ export function KillSession(arg1) {
   return window['go']['app']['SessionAPI']['KillSession'](arg1);
 }
 
+export function KillShell(arg1) {
+  return window['go']['app']['SessionAPI']['KillShell'](arg1);
+}
+
 export function ListDirectory(arg1, arg2) {
   return window['go']['app']['SessionAPI']['ListDirectory'](arg1, arg2);
 }
@@ -148,6 +152,10 @@ export function SetContext(arg1) {
 
 export function SetHostLastPath(arg1, arg2) {
   return window['go']['app']['SessionAPI']['SetHostLastPath'](arg1, arg2);
+}
+
+export function SpawnShell(arg1) {
+  return window['go']['app']['SessionAPI']['SpawnShell'](arg1);
 }
 
 export function StartSession(arg1) {

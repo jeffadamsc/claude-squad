@@ -140,6 +140,8 @@ declare global {
           DeletePath(sessionId: string, targetPath: string): Promise<void>;
           RenamePath(sessionId: string, oldPath: string, newPath: string): Promise<void>;
           CopyPath(sessionId: string, srcPath: string, destPath: string): Promise<void>;
+          SpawnShell(sessionId: string): Promise<string>;
+          KillShell(ptyId: string): Promise<void>;
         };
       };
     };

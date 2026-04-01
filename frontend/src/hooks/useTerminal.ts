@@ -24,14 +24,23 @@ export function useTerminal(
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectDelay = useRef(INITIAL_RECONNECT_DELAY);
   const intentionalClose = useRef(false);
+  const userScrolledUp = useRef(false);
+  const programmaticScroll = useRef(false);
   const [disconnected, setDisconnected] = useState(false);
   const terminalFontSize = useSessionStore((s) => s.terminalFontSize);
 
-  // Scroll terminal to bottom after a short delay to let xterm process data
+  // Scroll terminal to bottom robustly. xterm sometimes needs more than one
+  // animation frame to finish rendering (e.g. after fit or large writes), so
+  // we issue scrollToBottom across two consecutive frames. We flag these as
+  // programmatic so the onScroll handler doesn't confuse them with user input.
   const scrollToBottom = useCallback((term: Terminal) => {
-    // Use requestAnimationFrame to ensure xterm has processed the data
     requestAnimationFrame(() => {
+      programmaticScroll.current = true;
       term.scrollToBottom();
+      requestAnimationFrame(() => {
+        programmaticScroll.current = true;
+        term.scrollToBottom();
+      });
     });
   }, []);
 
@@ -80,11 +89,15 @@ export function useTerminal(
       }
 
       // After reconnection, the server replays the snapshot which can leave
-      // the viewport scrolled to an arbitrary position. Scroll to bottom after
-      // giving xterm time to process the replayed data.
-      setTimeout(() => {
-        if (term) scrollToBottom(term);
-      }, 50);
+      // the viewport scrolled to an arbitrary position. Reset scrolled-up
+      // state and force scroll during replay.
+      if (term) {
+        userScrolledUp.current = false;
+        const renderDispose = term.onRender(() => {
+          term!.scrollToBottom();
+        });
+        setTimeout(() => renderDispose.dispose(), 500);
+      }
     };
 
     ws.onclose = () => {
@@ -158,8 +171,13 @@ export function useTerminal(
       }
 
       // After initial connection, the server replays the snapshot which can
-      // leave the viewport scrolled to an arbitrary position.
-      setTimeout(() => scrollToBottom(term), 50);
+      // leave the viewport scrolled to an arbitrary position. Reset
+      // scrolled-up state and keep scrolling to bottom until data settles.
+      userScrolledUp.current = false;
+      const renderDispose = term.onRender(() => {
+        term.scrollToBottom();
+      });
+      setTimeout(() => renderDispose.dispose(), 500);
     };
 
     ws.onclose = () => {
@@ -172,10 +190,32 @@ export function useTerminal(
 
     wsRef.current = ws;
 
+    // Track whether the user has intentionally scrolled up. When they're
+    // at the bottom we auto-scroll on new output; when they scroll up we
+    // leave them alone until they return to the bottom. We skip
+    // programmatic scrolls to avoid resetting the flag incorrectly.
+    const scrollDispose = term.onScroll(() => {
+      if (programmaticScroll.current) {
+        programmaticScroll.current = false;
+        return;
+      }
+      userScrolledUp.current = !isAtBottom(term);
+    });
+
+    // Whenever xterm finishes parsing a write, scroll to bottom if the user
+    // hasn't scrolled up. This keeps the viewport pinned during normal
+    // output without fighting a user who is reading history.
+    const writeDispose = term.onWriteParsed(() => {
+      if (!userScrolledUp.current) {
+        programmaticScroll.current = true;
+        term.scrollToBottom();
+      }
+    });
+
     const resizeObserver = new ResizeObserver(() => {
       // Skip resize when container is hidden (display:none gives 0 dimensions)
       if (!container.offsetWidth || !container.offsetHeight) return;
-      const wasAtBottom = isAtBottom(term);
+      const wasAtBottom = isAtBottom(term) || !userScrolledUp.current;
       fit.fit();
       const dims = fit.proposeDimensions();
       const currentWs = wsRef.current;
@@ -187,6 +227,7 @@ export function useTerminal(
       // Refit after resize can leave viewport at a stale scroll position.
       // Restore scroll-to-bottom if we were already there.
       if (wasAtBottom) {
+        userScrolledUp.current = false;
         scrollToBottom(term);
       }
     });
@@ -194,6 +235,8 @@ export function useTerminal(
 
     return () => {
       intentionalClose.current = true;
+      scrollDispose.dispose();
+      writeDispose.dispose();
       if (reconnectTimer.current) {
         clearTimeout(reconnectTimer.current);
         reconnectTimer.current = null;
@@ -218,7 +261,7 @@ export function useTerminal(
     const term = termRef.current;
     const fit = fitRef.current;
     if (!term) return;
-    const wasAtBottom = isAtBottom(term);
+    const wasAtBottom = isAtBottom(term) || !userScrolledUp.current;
     term.options.fontSize = terminalFontSize;
     if (fit) {
       fit.fit();
@@ -228,9 +271,8 @@ export function useTerminal(
         ws.send(JSON.stringify({ type: "resize", rows: dims.rows, cols: dims.cols }));
       }
     }
-    // Refit changes the row count which can leave the viewport at a stale
-    // scroll position. Restore scroll-to-bottom if we were there before.
     if (wasAtBottom) {
+      userScrolledUp.current = false;
       scrollToBottom(term);
     }
   }, [terminalFontSize, isAtBottom, scrollToBottom]);

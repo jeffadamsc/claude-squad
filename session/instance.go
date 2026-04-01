@@ -260,8 +260,8 @@ func (i *Instance) IsInPlace() bool {
 	return i.inPlace
 }
 
-// getWorkDir returns the working directory for this instance's process.
-func (i *Instance) getWorkDir() string {
+// GetWorkDir returns the working directory for this instance's process.
+func (i *Instance) GetWorkDir() string {
 	if i.inPlace {
 		return i.Path
 	}
@@ -892,7 +892,7 @@ func (i *Instance) SyncClaudeSessionID() bool {
 	// Fall back to scanning the Claude project directory for the most
 	// recently modified .jsonl file. The PID file is only written at
 	// startup and does not reflect /clear, so this catches that case.
-	workDir := i.getWorkDir()
+	workDir := i.GetWorkDir()
 	if workDir == "" {
 		return false
 	}
