@@ -16,6 +16,24 @@ import (
 	"claude-squad/log"
 )
 
+// Symbol represents an indexed symbol with extended metadata.
+type Symbol struct {
+	Name     string `json:"name"`
+	File     string `json:"path"`
+	Line     int    `json:"line"`
+	Kind     string `json:"kind"`
+	Language string `json:"language"`
+	Scope    string `json:"scope"`
+}
+
+// Reference represents a usage/reference to a symbol.
+type Reference struct {
+	Symbol Symbol
+	File   string
+	Line   int
+	Column int
+}
+
 // Definition represents a symbol definition from ctags.
 type Definition struct {
 	Name     string `json:"name"`
