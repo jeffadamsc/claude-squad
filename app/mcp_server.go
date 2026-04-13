@@ -25,6 +25,7 @@ type MCPIndexServer struct {
 	mu                sync.RWMutex
 	api               *SessionAPI
 	standaloneIndexer *SessionIndexer
+	standaloneTSIndexer *TreeSitterIndexer
 	server            *server.StreamableHTTPServer
 	listener          net.Listener
 	port              int
@@ -40,6 +41,14 @@ func NewMCPIndexServer(api *SessionAPI) *MCPIndexServer {
 func NewMCPIndexServerStandalone(indexer *SessionIndexer) *MCPIndexServer {
 	return &MCPIndexServer{
 		standaloneIndexer: indexer,
+	}
+}
+
+// NewMCPIndexServerStandaloneTS creates an MCP server backed by a TreeSitterIndexer.
+// Use this for benchmarks or standalone operation with the new tree-sitter indexer.
+func NewMCPIndexServerStandaloneTS(indexer *TreeSitterIndexer) *MCPIndexServer {
+	return &MCPIndexServer{
+		standaloneTSIndexer: indexer,
 	}
 }
 
@@ -143,7 +152,10 @@ func getSessionID(ctx context.Context) string {
 
 // getIndexer returns the indexer for the given session ID.
 // In standalone mode, returns the standalone indexer regardless of session ID.
-func (m *MCPIndexServer) getIndexer(sessionID string) (*SessionIndexer, error) {
+func (m *MCPIndexServer) getIndexer(sessionID string) (Indexer, error) {
+	if m.standaloneTSIndexer != nil {
+		return m.standaloneTSIndexer, nil
+	}
 	if m.standaloneIndexer != nil {
 		return m.standaloneIndexer, nil
 	}
@@ -230,6 +242,53 @@ func (m *MCPIndexServer) registerTools(s *server.MCPServer) {
 			),
 		),
 		m.handleSearchSymbols,
+	)
+
+	// get_symbol - enhanced lookup with optional full body
+	s.AddTool(
+		mcp.NewTool("get_symbol",
+			mcp.WithDescription("Get symbol definition with optional full source body. More detailed than lookup_symbol."),
+			mcp.WithString("name",
+				mcp.Description("The symbol name to look up"),
+				mcp.Required(),
+			),
+			mcp.WithBoolean("signature_only",
+				mcp.Description("If true, return only signature, not full body"),
+			),
+		),
+		m.handleGetSymbol,
+	)
+
+	// find_callers - reverse call graph
+	s.AddTool(
+		mcp.NewTool("find_callers",
+			mcp.WithDescription("Find all places where a symbol is called. Returns file, line, and calling function."),
+			mcp.WithString("symbol",
+				mcp.Description("The symbol name to find callers for"),
+				mcp.Required(),
+			),
+		),
+		m.handleFindCallers,
+	)
+
+	// find_callees - forward call graph
+	s.AddTool(
+		mcp.NewTool("find_callees",
+			mcp.WithDescription("Find all symbols called by a function. Returns what the function calls."),
+			mcp.WithString("symbol",
+				mcp.Description("The function name to find callees for"),
+				mcp.Required(),
+			),
+		),
+		m.handleFindCallees,
+	)
+
+	// index_status - health check
+	s.AddTool(
+		mcp.NewTool("index_status",
+			mcp.WithDescription("Get index health and statistics. Shows file count, symbol count, and indexer state."),
+		),
+		m.handleIndexStatus,
 	)
 }
 
@@ -466,6 +525,189 @@ func (m *MCPIndexServer) handleSearchSymbols(ctx context.Context, req mcp.CallTo
 
 	result, _ := json.MarshalIndent(matches, "", "  ")
 	return mcp.NewToolResultText(string(result)), nil
+}
+
+// handleGetSymbol returns symbol with optional full body.
+func (m *MCPIndexServer) handleGetSymbol(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	sessionID := getSessionID(ctx)
+	if sessionID == "" {
+		return mcp.NewToolResultError("session ID not found"), nil
+	}
+
+	name, err := req.RequireString("name")
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("invalid argument: %v", err)), nil
+	}
+
+	signatureOnly, _ := req.RequireBool("signature_only")
+
+	idx, err := m.getIndexer(sessionID)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	// Try tree-sitter indexer first for richer data
+	if tsIdx, ok := idx.(*TreeSitterIndexer); ok {
+		syms := tsIdx.LookupSymbol(name)
+		if len(syms) == 0 {
+			return mcp.NewToolResultText(fmt.Sprintf("No symbol found: %q", name)), nil
+		}
+
+		if signatureOnly {
+			result, _ := json.MarshalIndent(syms, "", "  ")
+			return mcp.NewToolResultText(string(result)), nil
+		}
+
+		// Include source body for first match
+		sym := syms[0]
+		fullPath := filepath.Join(tsIdx.Worktree(), sym.File)
+		body, err := readLinesFromFile(fullPath, sym.Line, sym.EndLine)
+		if err == nil {
+			sym.DocComment = body // reuse field for body
+		}
+
+		result, _ := json.MarshalIndent(sym, "", "  ")
+		return mcp.NewToolResultText(string(result)), nil
+	}
+
+	// Fallback to basic indexer
+	defs := idx.Lookup(name)
+	if len(defs) == 0 {
+		return mcp.NewToolResultText(fmt.Sprintf("No symbol found: %q", name)), nil
+	}
+
+	result, _ := json.MarshalIndent(defs, "", "  ")
+	return mcp.NewToolResultText(string(result)), nil
+}
+
+// handleFindCallers returns all places where symbol is called.
+func (m *MCPIndexServer) handleFindCallers(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	sessionID := getSessionID(ctx)
+	if sessionID == "" {
+		return mcp.NewToolResultError("session ID not found"), nil
+	}
+
+	symbol, err := req.RequireString("symbol")
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("invalid argument: %v", err)), nil
+	}
+
+	idx, err := m.getIndexer(sessionID)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	tsIdx, ok := idx.(*TreeSitterIndexer)
+	if !ok {
+		return mcp.NewToolResultError("find_callers requires tree-sitter indexer"), nil
+	}
+
+	refs := tsIdx.FindCallers(symbol)
+	if len(refs) == 0 {
+		return mcp.NewToolResultText(fmt.Sprintf("No callers found for %q", symbol)), nil
+	}
+
+	result, _ := json.MarshalIndent(refs, "", "  ")
+	return mcp.NewToolResultText(string(result)), nil
+}
+
+// handleFindCallees returns all symbols called by function.
+func (m *MCPIndexServer) handleFindCallees(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	sessionID := getSessionID(ctx)
+	if sessionID == "" {
+		return mcp.NewToolResultError("session ID not found"), nil
+	}
+
+	symbol, err := req.RequireString("symbol")
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("invalid argument: %v", err)), nil
+	}
+
+	idx, err := m.getIndexer(sessionID)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	tsIdx, ok := idx.(*TreeSitterIndexer)
+	if !ok {
+		return mcp.NewToolResultError("find_callees requires tree-sitter indexer"), nil
+	}
+
+	refs := tsIdx.FindCallees(symbol)
+	if len(refs) == 0 {
+		return mcp.NewToolResultText(fmt.Sprintf("No callees found for %q", symbol)), nil
+	}
+
+	result, _ := json.MarshalIndent(refs, "", "  ")
+	return mcp.NewToolResultText(string(result)), nil
+}
+
+// handleIndexStatus returns index health info.
+func (m *MCPIndexServer) handleIndexStatus(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	sessionID := getSessionID(ctx)
+	if sessionID == "" {
+		return mcp.NewToolResultError("session ID not found"), nil
+	}
+
+	idx, err := m.getIndexer(sessionID)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	files := idx.Files()
+	allSyms := idx.AllSymbols()
+
+	symbolCount := 0
+	for _, defs := range allSyms {
+		symbolCount += len(defs)
+	}
+
+	status := map[string]interface{}{
+		"worktree":     idx.Worktree(),
+		"file_count":   len(files),
+		"symbol_count": symbolCount,
+		"indexer_type": "ctags",
+	}
+
+	if tsIdx, ok := idx.(*TreeSitterIndexer); ok {
+		status["indexer_type"] = "tree-sitter"
+		tsIdx.mu.RLock()
+		if tsIdx.callgraph != nil {
+			callers, callees := tsIdx.callgraph.Stats()
+			status["caller_symbols"] = callers
+			status["callee_functions"] = callees
+		}
+		tsIdx.mu.RUnlock()
+	}
+
+	result, _ := json.MarshalIndent(status, "", "  ")
+	return mcp.NewToolResultText(string(result)), nil
+}
+
+// readLinesFromFile reads a range of lines from a file.
+func readLinesFromFile(path string, start, end int) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	lineNum := 0
+	for scanner.Scan() {
+		lineNum++
+		if lineNum >= start && lineNum <= end {
+			lines = append(lines, scanner.Text())
+		}
+		if lineNum > end {
+			break
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	return strings.Join(lines, "\n"), nil
 }
 
 // GenerateMCPConfig generates an MCP configuration JSON for a session.
