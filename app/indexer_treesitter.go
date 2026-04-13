@@ -17,6 +17,7 @@ type TreeSitterIndexer struct {
 	files     []string
 	symbols   map[string][]Symbol
 	callgraph *CallGraph
+	search    *SymbolIndex
 
 	cancel  context.CancelFunc
 	done    chan struct{}
@@ -28,6 +29,7 @@ func NewTreeSitterIndexer(worktree string) *TreeSitterIndexer {
 	return &TreeSitterIndexer{
 		worktree: worktree,
 		symbols:  make(map[string][]Symbol),
+		search:   NewSymbolIndex(),
 		done:     make(chan struct{}),
 		refresh:  make(chan struct{}, 1),
 	}
@@ -52,6 +54,9 @@ func (idx *TreeSitterIndexer) Stop() {
 		idx.cancel()
 	}
 	<-idx.done
+	if idx.search != nil {
+		idx.search.Close()
+	}
 }
 
 // Refresh triggers an immediate re-index.
@@ -199,12 +204,25 @@ func (idx *TreeSitterIndexer) build(ctx context.Context) {
 		callgraph.AddReference(ref)
 	}
 
+	// Update search index
+	var allSyms []Symbol
+	for _, syms := range symbols {
+		allSyms = append(allSyms, syms...)
+	}
+	idx.search.Clear()
+	idx.search.IndexBatch(allSyms)
+
 	// Step 3: Update state
 	idx.mu.Lock()
 	idx.files = files
 	idx.symbols = symbols
 	idx.callgraph = callgraph
 	idx.mu.Unlock()
+}
+
+// SearchSymbols returns symbols matching query, ranked by BM25.
+func (idx *TreeSitterIndexer) SearchSymbols(query string, limit int) []Symbol {
+	return idx.search.Search(query, limit)
 }
 
 // FindCallers returns all places where symbol is called.
