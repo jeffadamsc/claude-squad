@@ -99,6 +99,38 @@ def my_function(x):
 	}
 }
 
+func TestExtractJavaScriptSymbols(t *testing.T) {
+	src := []byte(`
+function greet(name) {
+    return "Hello, " + name;
+}
+
+class Calculator {
+    add(a, b) {
+        return a + b;
+    }
+}
+
+const helper = (x) => x * 2;
+`)
+
+	symbols, _, err := extractSymbols("test.js", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	names := make(map[string]bool)
+	for _, s := range symbols {
+		names[s.Name] = true
+	}
+
+	for _, want := range []string{"greet", "Calculator", "add"} {
+		if !names[want] {
+			t.Errorf("missing symbol %q", want)
+		}
+	}
+}
+
 func TestUnsupportedExtension(t *testing.T) {
 	symbols, refs, err := extractSymbols("test.xyz", []byte("random content"))
 	if err != nil {

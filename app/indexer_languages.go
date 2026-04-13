@@ -6,8 +6,16 @@ import (
 	"strings"
 
 	sitter "github.com/smacker/go-tree-sitter"
+	"github.com/smacker/go-tree-sitter/bash"
+	"github.com/smacker/go-tree-sitter/c"
+	"github.com/smacker/go-tree-sitter/cpp"
+	"github.com/smacker/go-tree-sitter/csharp"
 	"github.com/smacker/go-tree-sitter/golang"
+	"github.com/smacker/go-tree-sitter/java"
+	"github.com/smacker/go-tree-sitter/javascript"
 	"github.com/smacker/go-tree-sitter/python"
+	"github.com/smacker/go-tree-sitter/ruby"
+	"github.com/smacker/go-tree-sitter/rust"
 	"github.com/smacker/go-tree-sitter/typescript/typescript"
 )
 
@@ -64,6 +72,119 @@ var langConfigs = map[string]*LangConfig{
 		RefKinds: map[string]string{
 			"call":      "call",
 			"attribute": "reference",
+		},
+	},
+	"javascript": {
+		Language:   javascript.GetLanguage(),
+		Extensions: []string{".js", ".jsx", ".mjs"},
+		SymbolKinds: map[string]string{
+			"function_declaration": "function",
+			"method_definition":    "method",
+			"class_declaration":    "class",
+			"variable_declarator":  "variable",
+			"arrow_function":       "function",
+		},
+		RefKinds: map[string]string{
+			"call_expression":   "call",
+			"member_expression": "reference",
+		},
+	},
+	"java": {
+		Language:   java.GetLanguage(),
+		Extensions: []string{".java"},
+		SymbolKinds: map[string]string{
+			"method_declaration":       "method",
+			"class_declaration":        "class",
+			"interface_declaration":    "interface",
+			"field_declaration":        "variable",
+			"constructor_declaration":  "constructor",
+		},
+		RefKinds: map[string]string{
+			"method_invocation": "call",
+		},
+	},
+	"c": {
+		Language:   c.GetLanguage(),
+		Extensions: []string{".c", ".h"},
+		SymbolKinds: map[string]string{
+			"function_definition": "function",
+			"declaration":         "variable",
+			"struct_specifier":    "type",
+			"enum_specifier":      "type",
+			"type_definition":     "type",
+		},
+		RefKinds: map[string]string{
+			"call_expression": "call",
+		},
+	},
+	"cpp": {
+		Language:   cpp.GetLanguage(),
+		Extensions: []string{".cpp", ".cc", ".cxx", ".hpp", ".hxx"},
+		SymbolKinds: map[string]string{
+			"function_definition":  "function",
+			"class_specifier":      "class",
+			"struct_specifier":     "type",
+			"namespace_definition": "namespace",
+			"template_declaration": "template",
+		},
+		RefKinds: map[string]string{
+			"call_expression": "call",
+		},
+	},
+	"rust": {
+		Language:   rust.GetLanguage(),
+		Extensions: []string{".rs"},
+		SymbolKinds: map[string]string{
+			"function_item": "function",
+			"impl_item":     "impl",
+			"struct_item":   "type",
+			"enum_item":     "type",
+			"trait_item":    "trait",
+			"mod_item":      "module",
+			"const_item":    "constant",
+			"static_item":   "variable",
+		},
+		RefKinds: map[string]string{
+			"call_expression":  "call",
+			"macro_invocation": "call",
+		},
+	},
+	"ruby": {
+		Language:   ruby.GetLanguage(),
+		Extensions: []string{".rb"},
+		SymbolKinds: map[string]string{
+			"method":           "method",
+			"singleton_method": "method",
+			"class":            "class",
+			"module":           "module",
+		},
+		RefKinds: map[string]string{
+			"call":        "call",
+			"method_call": "call",
+		},
+	},
+	"bash": {
+		Language:   bash.GetLanguage(),
+		Extensions: []string{".sh", ".bash"},
+		SymbolKinds: map[string]string{
+			"function_definition": "function",
+		},
+		RefKinds: map[string]string{
+			"command": "call",
+		},
+	},
+	"csharp": {
+		Language:   csharp.GetLanguage(),
+		Extensions: []string{".cs"},
+		SymbolKinds: map[string]string{
+			"method_declaration":    "method",
+			"class_declaration":     "class",
+			"interface_declaration": "interface",
+			"struct_declaration":    "type",
+			"property_declaration":  "property",
+		},
+		RefKinds: map[string]string{
+			"invocation_expression": "call",
 		},
 	},
 }
