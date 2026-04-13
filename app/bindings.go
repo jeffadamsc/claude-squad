@@ -28,14 +28,15 @@ type SessionAPIOptions struct {
 }
 
 type CreateOptions struct {
-	Title   string `json:"title"`
-	Path    string `json:"path"`
-	Program string `json:"program"`
-	Branch  string `json:"branch"`
-	AutoYes bool   `json:"autoYes"`
-	InPlace bool   `json:"inPlace"`
-	Prompt  string `json:"prompt"`
-	HostID  string `json:"hostId"`
+	Title      string `json:"title"`
+	Path       string `json:"path"`
+	Program    string `json:"program"`
+	Branch     string `json:"branch"`
+	AutoYes    bool   `json:"autoYes"`
+	InPlace    bool   `json:"inPlace"`
+	Prompt     string `json:"prompt"`
+	HostID     string `json:"hostId"`
+	MCPEnabled *bool  `json:"mcpEnabled,omitempty"`
 }
 
 type SessionInfo struct {
@@ -84,6 +85,7 @@ type SessionAPI struct {
 	hostStore     *sshPkg.HostStore
 	keychainStore *sshPkg.KeychainStore
 	indexers      map[string]*SessionIndexer
+	mcpServer     *MCPIndexServer
 }
 
 func NewSessionAPI(opts SessionAPIOptions) (*SessionAPI, error) {
@@ -148,6 +150,13 @@ func NewSessionAPI(opts SessionAPIOptions) (*SessionAPI, error) {
 		}
 	}
 
+	// Start MCP index server for Claude Code sessions to connect to
+	api.mcpServer = NewMCPIndexServer(api)
+	if _, err := api.mcpServer.Start(); err != nil {
+		log.ErrorLog.Printf("failed to start MCP server: %v", err)
+		// Non-fatal: sessions can still run without MCP
+	}
+
 	return api, nil
 }
 
@@ -189,6 +198,28 @@ func statusString(s session.Status) string {
 	default:
 		return "unknown"
 	}
+}
+
+// setMCPConfigWithOpts sets the MCP configuration on an instance,
+// respecting the MCPEnabled option.
+func (api *SessionAPI) setMCPConfigWithOpts(inst *session.Instance, opts CreateOptions) {
+	if api.mcpServer == nil {
+		return
+	}
+	// Check if MCP is explicitly disabled
+	if opts.MCPEnabled != nil && !*opts.MCPEnabled {
+		return
+	}
+	// Only set MCP config for Claude Code sessions
+	if !strings.HasSuffix(inst.Program, session.ProgramClaude) {
+		return
+	}
+	inst.MCPConfig = api.mcpServer.GenerateMCPConfig(inst.Title)
+}
+
+// setMCPConfig is the existing helper (for backward compatibility)
+func (api *SessionAPI) setMCPConfig(inst *session.Instance) {
+	api.setMCPConfigWithOpts(inst, CreateOptions{})
 }
 
 func instanceToInfo(inst *session.Instance) SessionInfo {
@@ -309,6 +340,7 @@ func (api *SessionAPI) OpenSession(id string) (string, error) {
 	// Resume paused sessions
 	if inst.Paused() {
 		log.InfoLog.Printf("OpenSession: resuming paused session %q", id)
+		api.setMCPConfig(inst)
 		if err := inst.Resume(); err != nil {
 			log.ErrorLog.Printf("OpenSession: resume failed for %q: %v", id, err)
 			return "", fmt.Errorf("resume session: %w", err)
@@ -342,6 +374,8 @@ func (api *SessionAPI) StartSession(id string) error {
 	}
 	// Set loading status while holding the lock so the poller can see it
 	inst.SetStatus(session.Loading)
+	// Set MCP config for Claude Code sessions
+	api.setMCPConfig(inst)
 	api.mu.Unlock()
 
 	// Start is slow (git worktree setup, process spawn) — run without holding the lock
@@ -389,6 +423,7 @@ func (api *SessionAPI) ResumeSession(id string) error {
 		return fmt.Errorf("session %s not found", id)
 	}
 
+	api.setMCPConfig(inst)
 	if err := inst.Resume(); err != nil {
 		return fmt.Errorf("resume session: %w", err)
 	}
@@ -573,6 +608,11 @@ func (api *SessionAPI) Close() {
 
 	for _, idx := range api.indexers {
 		idx.Stop()
+	}
+
+	// Stop MCP server
+	if api.mcpServer != nil {
+		api.mcpServer.Stop()
 	}
 
 	// Only save state if we actually modified something

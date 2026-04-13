@@ -115,7 +115,38 @@ func newTestAPI(t *testing.T) *SessionAPI {
 		hostStore:     hostStore,
 		keychainStore: keychainStore,
 		indexers:      make(map[string]*SessionIndexer),
+		mcpServer:     NewMCPIndexServer(nil),
 	}
 	t.Cleanup(func() { api.Close() })
 	return api
+}
+
+func TestSetMCPConfig_Disabled(t *testing.T) {
+	api := &SessionAPI{
+		mcpServer: &MCPIndexServer{},
+	}
+	// Start MCP server so it has a port
+	api.mcpServer.port = 12345
+
+	inst := &session.Instance{
+		Title:   "test",
+		Program: "claude",
+	}
+
+	// MCPEnabled = false should not set config
+	disabled := false
+	opts := CreateOptions{MCPEnabled: &disabled}
+	api.setMCPConfigWithOpts(inst, opts)
+	assert.Empty(t, inst.MCPConfig)
+
+	// MCPEnabled = true should set config
+	enabled := true
+	opts = CreateOptions{MCPEnabled: &enabled}
+	api.setMCPConfigWithOpts(inst, opts)
+	assert.NotEmpty(t, inst.MCPConfig)
+
+	// MCPEnabled = nil (default) should set config
+	opts = CreateOptions{MCPEnabled: nil}
+	api.setMCPConfigWithOpts(inst, opts)
+	assert.NotEmpty(t, inst.MCPConfig)
 }
