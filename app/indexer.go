@@ -212,6 +212,11 @@ func (idx *SessionIndexer) Refresh() {
 	}
 }
 
+// Worktree returns the worktree path.
+func (idx *SessionIndexer) Worktree() string {
+	return idx.worktree
+}
+
 // Files returns the current list of tracked files.
 func (idx *SessionIndexer) Files() []string {
 	idx.mu.RLock()
