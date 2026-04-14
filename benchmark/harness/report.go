@@ -98,7 +98,9 @@ func GenerateReport(workdir string, results []*RunResult) *Report {
 			addToAggregate(&report.Summary.WithMCP, r.Metrics) // For backward compat
 		case "treesitter":
 			tr.TreeSitter = r.Metrics
+			tr.WithMCP = r.Metrics // For backward compat in two-column mode
 			addToAggregate(&report.Summary.TreeSitter, r.Metrics)
+			addToAggregate(&report.Summary.WithMCP, r.Metrics) // For backward compat
 		}
 	}
 

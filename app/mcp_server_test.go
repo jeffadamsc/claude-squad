@@ -167,15 +167,15 @@ func TestMCPIndexServer_LookupSymbol_NoIndexer(t *testing.T) {
 	require.NoError(t, err)
 	resp.Body.Close()
 
-	// Call tools/call with lookup_symbol
+	// Call tools/call with code_search
 	callReq := jsonRPCRequest{
 		JSONRPC: "2.0",
 		ID:      2,
 		Method:  "tools/call",
 		Params: map[string]interface{}{
-			"name": "lookup_symbol",
+			"name": "code_search",
 			"arguments": map[string]interface{}{
-				"name": "TestFunction",
+				"query": "TestFunction",
 			},
 		},
 	}
@@ -295,13 +295,13 @@ func Hello() string {
 	require.NoError(t, err)
 	resp.Body.Close()
 
-	// Test get_symbol tool
+	// Test get_symbol_source tool
 	callReq := jsonRPCRequest{
 		JSONRPC: "2.0",
 		ID:      2,
 		Method:  "tools/call",
 		Params: map[string]interface{}{
-			"name": "get_symbol",
+			"name": "get_symbol_source",
 			"arguments": map[string]interface{}{
 				"name": "Hello",
 			},
@@ -478,13 +478,13 @@ func Greet() string {
 	require.NoError(t, err)
 	resp.Body.Close()
 
-	// Test find_callers tool
+	// Test find_references tool
 	callReq := jsonRPCRequest{
 		JSONRPC: "2.0",
 		ID:      2,
 		Method:  "tools/call",
 		Params: map[string]interface{}{
-			"name": "find_callers",
+			"name": "find_references",
 			"arguments": map[string]interface{}{
 				"symbol": "Hello",
 			},
@@ -572,13 +572,13 @@ func Greet() string {
 	require.NoError(t, err)
 	resp.Body.Close()
 
-	// Test find_callees tool
+	// Test get_call_graph tool
 	callReq := jsonRPCRequest{
 		JSONRPC: "2.0",
 		ID:      2,
 		Method:  "tools/call",
 		Params: map[string]interface{}{
-			"name": "find_callees",
+			"name": "get_call_graph",
 			"arguments": map[string]interface{}{
 				"symbol": "Greet",
 			},

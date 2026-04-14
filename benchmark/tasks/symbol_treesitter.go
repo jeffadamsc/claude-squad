@@ -11,7 +11,7 @@ func (t *SymbolTreeSitterSession) Name() string     { return "symbol-treesitter-
 func (t *SymbolTreeSitterSession) Category() string { return "symbol-treesitter" }
 func (t *SymbolTreeSitterSession) Prompt() string {
 	return `You have access to a cs-index MCP server with tree-sitter indexing.
-Use get_symbol to find the Session struct definition. Then use find_callers
-to show where it's instantiated. Show file paths and line numbers.`
+Use smart_lookup to find and understand the Session struct - this will return the struct
+definition plus any methods or functions it uses. Show file paths and line numbers.`
 }
 func (t *SymbolTreeSitterSession) Validate(output string) error { return nil }
