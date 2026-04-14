@@ -35,6 +35,8 @@ type Symbol struct {
 	Line       int    `json:"line"`
 	EndLine    int    `json:"end_line"`   // for extracting full body
 	Column     int    `json:"column"`
+	StartByte  uint32 `json:"start_byte"` // byte offset for precise retrieval
+	EndByte    uint32 `json:"end_byte"`   // byte offset for precise retrieval
 	Language   string `json:"language"`
 	Scope      string `json:"scope"`      // parent class/module
 	Signature  string `json:"signature"`  // function signature

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -290,6 +291,27 @@ func (idx *TreeSitterIndexer) FindCallees(caller string) []Reference {
 		return nil
 	}
 	return idx.callgraph.FindCallees(caller)
+}
+
+// GetSymbolContent retrieves the exact source code for a symbol using byte offsets.
+// This is more efficient than line-based retrieval as it extracts only the exact bytes.
+func (idx *TreeSitterIndexer) GetSymbolContent(sym Symbol) (string, error) {
+	fullPath := filepath.Join(idx.worktree, sym.File)
+	content, err := os.ReadFile(fullPath)
+	if err != nil {
+		return "", err
+	}
+
+	if sym.EndByte > uint32(len(content)) {
+		return "", fmt.Errorf("symbol end byte %d exceeds file length %d", sym.EndByte, len(content))
+	}
+
+	return string(content[sym.StartByte:sym.EndByte]), nil
+}
+
+// EstimateTokens estimates the token count for a string (rough: ~4 chars per token).
+func EstimateTokens(s string) int {
+	return (len(s) + 3) / 4
 }
 
 // isBinary returns true if content looks like binary data.

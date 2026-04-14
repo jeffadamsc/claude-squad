@@ -328,6 +328,8 @@ func extractSymbolFromNode(node *sitter.Node, kind, file, lang string, content [
 		Line:      int(node.StartPoint().Row) + 1,
 		EndLine:   int(node.EndPoint().Row) + 1,
 		Column:    int(node.StartPoint().Column) + 1,
+		StartByte: node.StartByte(),
+		EndByte:   node.EndByte(),
 		Language:  lang,
 		Scope:     scope,
 		Signature: signature,
