@@ -227,17 +227,20 @@ func (api *SessionAPI) setMCPConfigWithOpts(inst *session.Instance, opts CreateO
 // mcpGuidance is the context hint for Claude to prefer MCP index tools.
 const mcpGuidance = `# MCP Index Server
 
-You have access to a cs-index MCP server with symbol indexing tools.
-Prefer these tools over Grep/Read for code navigation:
+You have access to a cs-index MCP server. Use these tools instead of Grep/Read for code navigation.
 
-- get_symbol - retrieve exact implementation with full source body
-- search_symbols - find symbols by name pattern (BM25 ranked)
-- find_callers - trace who calls a function
-- find_callees - trace what a function calls
-- get_file_outline - understand file structure before reading
-- index_status - check indexer health
+**START HERE - smart_lookup is your best tool:**
+- "Explain function X" → smart_lookup (returns X + everything X calls)
+- "How does Y work?" → smart_lookup (complete context in one call)
 
-Fall back to Grep/Read for text search or when editing files.
+**Other tools:**
+- code_search - find symbols by name (use instead of Grep for functions/classes)
+- get_symbol_source - get exact source code for a symbol
+- find_references - find all callers of a function
+- get_call_graph - trace what a function calls
+- get_file_symbols - get file outline/structure
+
+Fall back to Grep/Read only for non-code files or regex search.
 `
 
 // writeMCPGuidance writes MCP usage hints to .claude/CLAUDE.md in the worktree.
@@ -391,6 +394,18 @@ func (api *SessionAPI) OpenSession(id string) (string, error) {
 		api.saveInstancesLocked()
 	}
 
+	// Auto-start indexer if not already running (for MCP tools)
+	if _, hasIdx := api.indexers[id]; !hasIdx && inst.HostID == "" {
+		worktree := inst.GetWorktreePath()
+		if worktree == "" {
+			worktree = inst.Path
+		}
+		idx := createIndexer(worktree, DefaultIndexer)
+		idx.Start()
+		api.indexers[id] = idx
+		log.InfoLog.Printf("OpenSession: auto-started indexer for %q at %s", id, worktree)
+	}
+
 	// Return the PTY process ID for WebSocket routing
 	ptyID := inst.GetProcessID()
 	if ptyID == "" {
@@ -444,6 +459,20 @@ func (api *SessionAPI) StartSession(id string) error {
 	api.mu.Lock()
 	api.dirty = true
 	api.saveInstancesLocked()
+
+	// Auto-start indexer for local sessions so MCP tools work immediately.
+	// Remote sessions aren't supported yet for indexing.
+	if inst.HostID == "" {
+		worktree := inst.GetWorktreePath()
+		if worktree == "" {
+			worktree = inst.Path
+		}
+		idx := createIndexer(worktree, DefaultIndexer)
+		idx.Start()
+		api.indexers[id] = idx
+		log.InfoLog.Printf("StartSession: auto-started indexer for %q at %s", id, worktree)
+	}
+
 	api.mu.Unlock()
 	return nil
 }
