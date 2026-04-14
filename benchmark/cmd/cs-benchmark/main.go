@@ -24,10 +24,6 @@ func main() {
 }
 
 func run() error {
-	// MCP benchmarks disabled - focusing on tree-sitter indexer quality
-	// TODO: Re-enable when MCP integration is improved
-	return fmt.Errorf("MCP benchmarks temporarily disabled - use indexer micro-benchmarks instead")
-
 	// Parse flags
 	var (
 		workdir      string

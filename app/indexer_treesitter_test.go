@@ -213,6 +213,168 @@ func UnrelatedFunc() string {
 	idx.Stop()
 }
 
+func TestBlastRadius(t *testing.T) {
+	tmp := t.TempDir()
+
+	// Create minimal git repo
+	os.MkdirAll(filepath.Join(tmp, ".git"), 0755)
+	exec.Command("git", "-C", tmp, "init").Run()
+
+	// Create a Go file with a call hierarchy:
+	// Main -> A -> Helper
+	// Main -> B -> Helper
+	// Main -> C -> Helper
+	// So Helper has 3 direct dependents (A, B, C) and 1 transitive (Main)
+	goCode := []byte(`package main
+
+func Main() {
+	A()
+	B()
+	C()
+}
+
+func A() string {
+	return Helper()
+}
+
+func B() string {
+	return Helper()
+}
+
+func C() string {
+	return Helper()
+}
+
+func Helper() string {
+	return "helper"
+}
+`)
+	os.WriteFile(filepath.Join(tmp, "main.go"), goCode, 0644)
+	exec.Command("git", "-C", tmp, "add", "main.go").Run()
+
+	idx := NewTreeSitterIndexer(tmp)
+	idx.Start()
+	time.Sleep(200 * time.Millisecond)
+
+	// Get blast radius for Helper
+	br := idx.GetBlastRadius("Helper")
+
+	if br.Symbol != "Helper" {
+		t.Errorf("Symbol = %q, want Helper", br.Symbol)
+	}
+
+	// Should have 3 direct dependents (A, B, C)
+	if br.DirectDependents < 3 {
+		t.Errorf("DirectDependents = %d, want >= 3", br.DirectDependents)
+	}
+
+	// Should have transitive dependents too (Main depends on A, B, C)
+	if br.TotalDependents < 4 {
+		t.Errorf("TotalDependents = %d, want >= 4", br.TotalDependents)
+	}
+
+	// MaxDepth should be at least 2 (Helper -> A -> Main)
+	if br.MaxDepth < 2 {
+		t.Errorf("MaxDepth = %d, want >= 2", br.MaxDepth)
+	}
+
+	// Risk score should be > 0
+	if br.RiskScore <= 0 {
+		t.Errorf("RiskScore = %f, want > 0", br.RiskScore)
+	}
+
+	// Check that Main has no dependents
+	brMain := idx.GetBlastRadius("Main")
+	if brMain.TotalDependents != 0 {
+		t.Errorf("Main TotalDependents = %d, want 0", brMain.TotalDependents)
+	}
+
+	idx.Stop()
+}
+
+func TestPageRank(t *testing.T) {
+	tmp := t.TempDir()
+
+	// Create minimal git repo
+	os.MkdirAll(filepath.Join(tmp, ".git"), 0755)
+	exec.Command("git", "-C", tmp, "init").Run()
+
+	// Create a call graph where:
+	// Main -> A, B, C (Main calls 3 things)
+	// A, B, C all call Helper (Helper is called by 3 things)
+	// Helper should have highest PageRank (most important)
+	goCode := []byte(`package main
+
+func Main() {
+	A()
+	B()
+	C()
+}
+
+func A() string {
+	return Helper()
+}
+
+func B() string {
+	return Helper()
+}
+
+func C() string {
+	return Helper()
+}
+
+func Helper() string {
+	return "helper"
+}
+`)
+	os.WriteFile(filepath.Join(tmp, "main.go"), goCode, 0644)
+	exec.Command("git", "-C", tmp, "add", "main.go").Run()
+
+	idx := NewTreeSitterIndexer(tmp)
+	idx.Start()
+	time.Sleep(200 * time.Millisecond)
+
+	// Get PageRank scores
+	pr := idx.GetPageRank()
+
+	if len(pr) == 0 {
+		t.Fatal("expected PageRank results")
+	}
+
+	// Find Helper's rank
+	helperRank := -1
+	var helperScore float64
+	for i, r := range pr {
+		if r.Symbol == "Helper" {
+			helperRank = i
+			helperScore = r.Score
+			break
+		}
+	}
+
+	if helperRank == -1 {
+		t.Fatal("Helper not found in PageRank results")
+	}
+
+	// Helper should be in top 3 (it's the most called symbol)
+	if helperRank > 2 {
+		t.Errorf("Helper ranked %d, expected in top 3", helperRank+1)
+	}
+
+	// Helper's score should be > 0
+	if helperScore <= 0 {
+		t.Errorf("Helper score = %f, expected > 0", helperScore)
+	}
+
+	// Verify centrality now uses PageRank
+	centrality := idx.GetCentrality("Helper")
+	if centrality.Score <= 0 {
+		t.Errorf("Centrality score = %f, expected > 0", centrality.Score)
+	}
+
+	idx.Stop()
+}
+
 func TestSearchWithContext(t *testing.T) {
 	tmp := t.TempDir()
 
@@ -279,6 +441,169 @@ func Unrelated() string {
 		if r.Symbol.Name == "Unrelated" {
 			t.Error("Unrelated should not be in related symbols")
 		}
+	}
+
+	idx.Stop()
+}
+
+func TestIncrementalIndexing(t *testing.T) {
+	tmp := t.TempDir()
+
+	// Create minimal git repo
+	os.MkdirAll(filepath.Join(tmp, ".git"), 0755)
+	exec.Command("git", "-C", tmp, "init").Run()
+
+	// Create initial files
+	file1 := `package main
+
+func Hello() string {
+	return "hello"
+}
+`
+	file2 := `package main
+
+func Goodbye() string {
+	return "goodbye"
+}
+`
+	os.WriteFile(filepath.Join(tmp, "file1.go"), []byte(file1), 0644)
+	os.WriteFile(filepath.Join(tmp, "file2.go"), []byte(file2), 0644)
+	exec.Command("git", "-C", tmp, "add", ".").Run()
+
+	idx := NewTreeSitterIndexer(tmp)
+	idx.Start()
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify initial index
+	syms := idx.LookupSymbol("Hello")
+	if len(syms) != 1 {
+		t.Errorf("Initial Hello lookup: got %d, want 1", len(syms))
+	}
+	syms = idx.LookupSymbol("Goodbye")
+	if len(syms) != 1 {
+		t.Errorf("Initial Goodbye lookup: got %d, want 1", len(syms))
+	}
+
+	// Modify only file1
+	time.Sleep(10 * time.Millisecond) // ensure different mod time
+	file1Modified := `package main
+
+func Hello() string {
+	return "hello world" // modified
+}
+
+func NewFunc() string {
+	return "new"
+}
+`
+	os.WriteFile(filepath.Join(tmp, "file1.go"), []byte(file1Modified), 0644)
+
+	// Trigger refresh
+	idx.Refresh()
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify Hello is still there
+	syms = idx.LookupSymbol("Hello")
+	if len(syms) != 1 {
+		t.Errorf("After refresh Hello lookup: got %d, want 1", len(syms))
+	}
+
+	// Verify NewFunc was added
+	syms = idx.LookupSymbol("NewFunc")
+	if len(syms) != 1 {
+		t.Errorf("After refresh NewFunc lookup: got %d, want 1", len(syms))
+	}
+
+	// Verify Goodbye is still there (unchanged file)
+	syms = idx.LookupSymbol("Goodbye")
+	if len(syms) != 1 {
+		t.Errorf("After refresh Goodbye lookup: got %d, want 1", len(syms))
+	}
+
+	// Delete file2
+	os.Remove(filepath.Join(tmp, "file2.go"))
+	idx.Refresh()
+	time.Sleep(200 * time.Millisecond)
+
+	// Goodbye should be gone
+	syms = idx.LookupSymbol("Goodbye")
+	if len(syms) != 0 {
+		t.Errorf("After delete Goodbye lookup: got %d, want 0", len(syms))
+	}
+
+	// Hello and NewFunc should still be there
+	syms = idx.LookupSymbol("Hello")
+	if len(syms) != 1 {
+		t.Errorf("After delete Hello lookup: got %d, want 1", len(syms))
+	}
+
+	idx.Stop()
+}
+
+func TestDeadCodeDetection(t *testing.T) {
+	tmp := t.TempDir()
+
+	// Create minimal git repo
+	os.MkdirAll(filepath.Join(tmp, ".git"), 0755)
+	exec.Command("git", "-C", tmp, "init").Run()
+
+	// Create a Go file with used and unused functions
+	goCode := []byte(`package main
+
+func main() {
+	usedFunc()
+}
+
+func usedFunc() string {
+	return helper()
+}
+
+func helper() string {
+	return "helper"
+}
+
+func unusedFunc() string {
+	return "never called"
+}
+
+func anotherUnused() string {
+	return "also never called"
+}
+`)
+	os.WriteFile(filepath.Join(tmp, "main.go"), goCode, 0644)
+	exec.Command("git", "-C", tmp, "add", "main.go").Run()
+
+	idx := NewTreeSitterIndexer(tmp)
+	idx.Start()
+	time.Sleep(200 * time.Millisecond)
+
+	// Find dead code
+	deadCode := idx.FindDeadCode()
+
+	// Should find unusedFunc and anotherUnused
+	foundUnused := false
+	foundAnother := false
+	for _, dc := range deadCode {
+		if dc.Symbol == "unusedFunc" {
+			foundUnused = true
+			if dc.Confidence <= 0 {
+				t.Errorf("unusedFunc confidence = %f, want > 0", dc.Confidence)
+			}
+		}
+		if dc.Symbol == "anotherUnused" {
+			foundAnother = true
+		}
+		// Should NOT find main, usedFunc, or helper
+		if dc.Symbol == "main" || dc.Symbol == "usedFunc" || dc.Symbol == "helper" {
+			t.Errorf("Found %s in dead code (should be in use)", dc.Symbol)
+		}
+	}
+
+	if !foundUnused {
+		t.Error("unusedFunc should be detected as dead code")
+	}
+	if !foundAnother {
+		t.Error("anotherUnused should be detected as dead code")
 	}
 
 	idx.Stop()

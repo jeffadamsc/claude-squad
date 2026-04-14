@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 // TreeSitterIndexer provides tree-sitter based symbol indexing.
@@ -16,12 +17,14 @@ import (
 type TreeSitterIndexer struct {
 	worktree string
 
-	mu        sync.RWMutex
-	files     []string
-	symbols   map[string][]Symbol
-	callgraph *CallGraph
-	search    *SymbolIndex
-	store     *IndexStore
+	mu           sync.RWMutex
+	files        []string
+	symbols      map[string][]Symbol
+	fileSymbols  map[string][]Symbol   // symbols by file for incremental updates
+	fileModTimes map[string]time.Time  // file -> last mod time for incremental indexing
+	callgraph    *CallGraph
+	search       *SymbolIndex
+	store        *IndexStore
 
 	cancel  context.CancelFunc
 	done    chan struct{}
@@ -31,12 +34,14 @@ type TreeSitterIndexer struct {
 // NewTreeSitterIndexer creates a new tree-sitter indexer for the worktree.
 func NewTreeSitterIndexer(worktree string) *TreeSitterIndexer {
 	return &TreeSitterIndexer{
-		worktree: worktree,
-		symbols:  make(map[string][]Symbol),
-		search:   NewSymbolIndex(),
-		store:    NewIndexStore(worktree),
-		done:     make(chan struct{}),
-		refresh:  make(chan struct{}, 1),
+		worktree:     worktree,
+		symbols:      make(map[string][]Symbol),
+		fileSymbols:  make(map[string][]Symbol),
+		fileModTimes: make(map[string]time.Time),
+		search:       NewSymbolIndex(),
+		store:        NewIndexStore(worktree),
+		done:         make(chan struct{}),
+		refresh:      make(chan struct{}, 1),
 	}
 }
 
@@ -157,14 +162,25 @@ func (idx *TreeSitterIndexer) loop(ctx context.Context) {
 }
 
 func (idx *TreeSitterIndexer) build(ctx context.Context) {
-	// Try to load from disk first
-	if idx.symbols == nil || len(idx.symbols) == 0 {
+	// Try to load from disk first (only on initial build)
+	idx.mu.RLock()
+	hasSymbols := len(idx.symbols) > 0
+	idx.mu.RUnlock()
+
+	if !hasSymbols {
 		if symbols, cg, commit, err := idx.store.Load(); err == nil && symbols != nil {
 			currentCommit := getHeadCommit(idx.worktree)
 			if commit == currentCommit {
 				idx.mu.Lock()
 				idx.symbols = symbols
 				idx.callgraph = cg
+				// Rebuild fileSymbols from loaded symbols
+				idx.fileSymbols = make(map[string][]Symbol)
+				for _, syms := range symbols {
+					for _, sym := range syms {
+						idx.fileSymbols[sym.File] = append(idx.fileSymbols[sym.File], sym)
+					}
+				}
 				idx.mu.Unlock()
 
 				var allSyms []Symbol
@@ -178,6 +194,13 @@ func (idx *TreeSitterIndexer) build(ctx context.Context) {
 				files, _ := listFilesInWorktreeCtx(ctx, idx.worktree)
 				idx.mu.Lock()
 				idx.files = files
+				// Initialize mod times for loaded files
+				for _, f := range files {
+					fullPath := filepath.Join(idx.worktree, f)
+					if info, err := os.Stat(fullPath); err == nil {
+						idx.fileModTimes[f] = info.ModTime()
+					}
+				}
 				idx.mu.Unlock()
 				return
 			}
@@ -197,11 +220,65 @@ func (idx *TreeSitterIndexer) build(ctx context.Context) {
 		return
 	}
 
-	// Step 2: Parse each file and extract symbols
-	symbols := make(map[string][]Symbol)
-	var allRefs []Reference
+	// Step 2: Determine which files need re-indexing (incremental)
+	idx.mu.RLock()
+	oldModTimes := idx.fileModTimes
+	oldFileSymbols := idx.fileSymbols
+	idx.mu.RUnlock()
+
+	var changedFiles []string
+	var deletedFiles []string
+	newModTimes := make(map[string]time.Time)
+	currentFiles := make(map[string]bool)
+	var existingFiles []string
 
 	for _, file := range files {
+		fullPath := filepath.Join(idx.worktree, file)
+		info, err := os.Stat(fullPath)
+		if err != nil {
+			// File doesn't exist (deleted but still in git index)
+			continue
+		}
+		existingFiles = append(existingFiles, file)
+		currentFiles[file] = true
+		modTime := info.ModTime()
+		newModTimes[file] = modTime
+
+		// Check if file changed
+		if oldMod, ok := oldModTimes[file]; !ok || !modTime.Equal(oldMod) {
+			changedFiles = append(changedFiles, file)
+		}
+	}
+	files = existingFiles // Use only existing files
+
+	// Find deleted files
+	for file := range oldModTimes {
+		if !currentFiles[file] {
+			deletedFiles = append(deletedFiles, file)
+		}
+	}
+
+	// If nothing changed and we have existing data, skip rebuild
+	if len(changedFiles) == 0 && len(deletedFiles) == 0 && hasSymbols {
+		idx.mu.Lock()
+		idx.files = files
+		idx.mu.Unlock()
+		return
+	}
+
+	// Step 3: Parse changed files
+	newFileSymbols := make(map[string][]Symbol)
+	var newRefs []Reference
+
+	// Copy unchanged file symbols
+	for file, syms := range oldFileSymbols {
+		if currentFiles[file] && !contains(changedFiles, file) {
+			newFileSymbols[file] = syms
+		}
+	}
+
+	// Parse changed files
+	for _, file := range changedFiles {
 		if ctx.Err() != nil {
 			return
 		}
@@ -209,10 +286,9 @@ func (idx *TreeSitterIndexer) build(ctx context.Context) {
 		fullPath := filepath.Join(idx.worktree, file)
 		content, err := os.ReadFile(fullPath)
 		if err != nil {
-			continue // skip unreadable files
+			continue
 		}
 
-		// Skip binary files (simple heuristic)
 		if isBinary(content) {
 			continue
 		}
@@ -223,23 +299,47 @@ func (idx *TreeSitterIndexer) build(ctx context.Context) {
 			continue
 		}
 
-		for _, sym := range syms {
-			symbols[sym.Name] = append(symbols[sym.Name], sym)
-		}
-		allRefs = append(allRefs, refs...)
+		newFileSymbols[file] = syms
+		newRefs = append(newRefs, refs...)
 	}
 
 	if ctx.Err() != nil {
 		return
 	}
 
+	// Rebuild symbols map from fileSymbols
+	symbols := make(map[string][]Symbol)
+	var allRefs []Reference
+
+	for _, syms := range newFileSymbols {
+		for _, sym := range syms {
+			symbols[sym.Name] = append(symbols[sym.Name], sym)
+		}
+	}
+
+	// For call graph, we need all refs - re-extract from unchanged files too
+	// (This is a trade-off: storing refs would use more memory)
+	for file := range newFileSymbols {
+		if !contains(changedFiles, file) {
+			// Re-extract refs from unchanged file
+			fullPath := filepath.Join(idx.worktree, file)
+			content, err := os.ReadFile(fullPath)
+			if err != nil {
+				continue
+			}
+			_, refs, _ := extractSymbols(file, content)
+			allRefs = append(allRefs, refs...)
+		}
+	}
+	allRefs = append(allRefs, newRefs...)
+
 	// Count for logging
 	nSymbols := 0
 	for _, defs := range symbols {
 		nSymbols += len(defs)
 	}
-	logInfo("treesitter build(%s): %d files, %d symbols, %d refs",
-		idx.worktree, len(files), nSymbols, len(allRefs))
+	logInfo("treesitter build(%s): %d files (%d changed, %d deleted), %d symbols",
+		idx.worktree, len(files), len(changedFiles), len(deletedFiles), nSymbols)
 
 	// Build call graph
 	callgraph := NewCallGraph()
@@ -255,10 +355,12 @@ func (idx *TreeSitterIndexer) build(ctx context.Context) {
 	idx.search.Clear()
 	idx.search.IndexBatch(allSyms)
 
-	// Step 3: Update state
+	// Step 4: Update state
 	idx.mu.Lock()
 	idx.files = files
 	idx.symbols = symbols
+	idx.fileSymbols = newFileSymbols
+	idx.fileModTimes = newModTimes
 	idx.callgraph = callgraph
 	idx.mu.Unlock()
 
@@ -266,6 +368,16 @@ func (idx *TreeSitterIndexer) build(ctx context.Context) {
 	if err := idx.store.Save(symbols, callgraph, commit); err != nil {
 		logError("treesitter: failed to persist index: %v", err)
 	}
+}
+
+// contains checks if a string slice contains a value.
+func contains(slice []string, val string) bool {
+	for _, s := range slice {
+		if s == val {
+			return true
+		}
+	}
+	return false
 }
 
 // SearchSymbols returns symbols matching query, ranked by BM25.
@@ -380,6 +492,37 @@ func (idx *TreeSitterIndexer) TopSymbolsByCentrality(limit int) []SymbolCentrali
 		return all
 	}
 	return all[:limit]
+}
+
+// GetBlastRadius returns the impact analysis for changing a symbol.
+// Shows what would break if the symbol is modified.
+func (idx *TreeSitterIndexer) GetBlastRadius(symbol string) BlastRadius {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	if idx.callgraph == nil {
+		return BlastRadius{Symbol: symbol}
+	}
+	return idx.callgraph.GetBlastRadius(symbol, 5)
+}
+
+// GetPageRank returns PageRank scores for all symbols.
+func (idx *TreeSitterIndexer) GetPageRank() []PageRankResult {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	if idx.callgraph == nil {
+		return nil
+	}
+	return idx.callgraph.ComputePageRank()
+}
+
+// FindDeadCode returns symbols that appear to be unused.
+func (idx *TreeSitterIndexer) FindDeadCode() []DeadCodeResult {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	if idx.callgraph == nil {
+		return nil
+	}
+	return idx.callgraph.FindDeadCode(idx.symbols)
 }
 
 // GetSymbolContent retrieves the exact source code for a symbol using byte offsets.
