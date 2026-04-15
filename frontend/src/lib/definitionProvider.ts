@@ -43,30 +43,40 @@ export function registerDefinitionProvider(
 
   // Initial load
   loadSymbols();
-  // Refresh every 15 seconds to pick up new symbols from background ctags runs
+  // Refresh every 15 seconds to pick up new symbols from background indexer runs
   const refreshInterval = setInterval(loadSymbols, 15000);
 
   const provider: Monaco.languages.DefinitionProvider = {
-    provideDefinition(
+    async provideDefinition(
       model,
       position
-    ): Monaco.languages.Definition | null {
+    ): Promise<Monaco.languages.Definition | null> {
       const word = model.getWordAtPosition(position);
       if (!word) return null;
 
       const defs = _symbolCache?.[word.word];
       if (!defs || defs.length === 0) return null;
 
-      return defs.map((def) => {
-        const uri = monaco.Uri.file(def.path);
-        if (!monaco.editor.getModel(uri)) {
-          monaco.editor.createModel("", detectLanguage(def.path), uri);
-        }
-        return {
-          uri,
-          range: new monaco.Range(def.line, 1, def.line, 1),
-        };
-      });
+      // Ensure all target files have models with content for the peek view
+      await Promise.all(
+        defs.map(async (def) => {
+          const uri = monaco.Uri.file(def.path);
+          if (!monaco.editor.getModel(uri)) {
+            try {
+              const content = await api().ReadFile(sessionId, def.path);
+              monaco.editor.createModel(content, detectLanguage(def.path), uri);
+            } catch {
+              // Fall back to empty model if file read fails
+              monaco.editor.createModel("", detectLanguage(def.path), uri);
+            }
+          }
+        })
+      );
+
+      return defs.map((def) => ({
+        uri: monaco.Uri.file(def.path),
+        range: new monaco.Range(def.line, 1, def.line, 1),
+      }));
     },
   };
 

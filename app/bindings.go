@@ -990,10 +990,20 @@ func (api *SessionAPI) listDirectoryLocal(inst *session.Instance, dirPath string
 		} else {
 			entryPath = entryPath + "/" + name
 		}
+
+		// Determine if entry is a directory - follow symlinks
+		isDir := e.IsDir()
+		if e.Type()&os.ModeSymlink != 0 {
+			// For symlinks, use os.Stat to follow and check target type
+			if stat, err := os.Stat(filepath.Join(absPath, name)); err == nil {
+				isDir = stat.IsDir()
+			}
+		}
+
 		entries = append(entries, DirectoryEntry{
 			Name:  name,
 			Path:  entryPath,
-			IsDir: e.IsDir(),
+			IsDir: isDir,
 			Size:  info.Size(),
 		})
 	}
