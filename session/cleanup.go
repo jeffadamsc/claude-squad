@@ -63,8 +63,24 @@ func KillWorktreeProcesses(worktreePath string) {
 		}
 	}
 
-	// Wait 3 seconds for graceful shutdown
-	time.Sleep(3 * time.Second)
+	// Poll until all processes are dead, then SIGKILL any survivors after 3s.
+	for attempt := 0; attempt < 15; attempt++ {
+		allDead := true
+		for _, pid := range pids {
+			proc, err := os.FindProcess(pid)
+			if err != nil {
+				continue
+			}
+			if proc.Signal(syscall.Signal(0)) == nil {
+				allDead = false
+				break
+			}
+		}
+		if allDead {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 
 	// SIGKILL survivors
 	for _, pid := range pids {
@@ -72,8 +88,7 @@ func KillWorktreeProcesses(worktreePath string) {
 		if err != nil {
 			continue
 		}
-		// Check if still alive
-		if err := proc.Signal(syscall.Signal(0)); err != nil {
+		if proc.Signal(syscall.Signal(0)) != nil {
 			continue // already dead
 		}
 		log.InfoLog.Printf("cleanup: SIGKILL pid %d (didn't exit after SIGTERM)", pid)

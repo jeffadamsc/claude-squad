@@ -535,6 +535,9 @@ func (api *SessionAPI) ResumeSession(id string) error {
 		return fmt.Errorf("resume session: %w", err)
 	}
 
+	// Clear auto-paused flag so the frontend no longer shows stale indicators.
+	inst.AutoPaused = false
+
 	api.dirty = true
 	api.saveInstancesLocked()
 	return nil
