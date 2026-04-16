@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -396,6 +397,11 @@ func (idx *TreeSitterIndexer) build(ctx context.Context) {
 	if err := idx.store.Save(symbols, callgraph, commit); err != nil {
 		logError("treesitter: failed to persist index: %v", err)
 	}
+
+	// Force Go to return freed heap pages to the OS immediately.
+	// Without this, Go holds freed pages indefinitely and macOS
+	// swaps them rather than reclaiming them.
+	debug.FreeOSMemory()
 }
 
 // contains checks if a string slice contains a value.
