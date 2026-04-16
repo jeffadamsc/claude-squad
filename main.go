@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"path/filepath"
 	"runtime/debug"
+	"time"
 
 	appPkg "claude-squad/app"
 	"claude-squad/config"
@@ -37,10 +38,11 @@ var (
 			log.Initialize(daemonFlag)
 			defer log.Close()
 
-			// Limit Go's memory usage to encourage more aggressive GC and
-			// faster return of memory to the OS. Without this, Go tends to
-			// hold onto allocated memory indefinitely.
-			debug.SetMemoryLimit(512 * 1024 * 1024) // 512 MiB
+			// Detect system RAM and scale Go's memory limit accordingly.
+			// Lower RAM machines get a tighter limit to encourage aggressive GC
+			// and faster return of memory to the OS.
+			memLimits := appPkg.ComputeMemoryLimits(appPkg.GetSystemMemoryMB())
+			debug.SetMemoryLimit(memLimits.GOMEMLIMIT)
 
 			if daemonFlag {
 				cfg := config.LoadConfig()
@@ -64,7 +66,11 @@ var (
 			_ = program
 			_ = autoYes
 
-			api, err := appPkg.NewSessionAPI(appPkg.SessionAPIOptions{})
+			idleTimeout := time.Duration(memLimits.IdleTimeoutMinutes) * time.Minute
+
+			api, err := appPkg.NewSessionAPI(appPkg.SessionAPIOptions{
+				IdleTimeout: idleTimeout,
+			})
 			if err != nil {
 				return fmt.Errorf("failed to create session API: %w", err)
 			}

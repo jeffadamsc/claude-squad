@@ -24,7 +24,8 @@ import (
 )
 
 type SessionAPIOptions struct {
-	DataDir string
+	DataDir     string
+	IdleTimeout time.Duration // 0 = disabled
 }
 
 type CreateOptions struct {
@@ -86,6 +87,7 @@ type SessionAPI struct {
 	keychainStore *sshPkg.KeychainStore
 	indexers      map[string]Indexer
 	mcpServer     *MCPIndexServer
+	idleTimeout   time.Duration
 }
 
 func NewSessionAPI(opts SessionAPIOptions) (*SessionAPI, error) {
@@ -124,6 +126,7 @@ func NewSessionAPI(opts SessionAPIOptions) (*SessionAPI, error) {
 		hostStore:     hostStore,
 		keychainStore: keychainStore,
 		indexers:      make(map[string]Indexer),
+		idleTimeout:   opts.IdleTimeout,
 	}
 
 	// Load persisted sessions as metadata. Sessions that were running when
